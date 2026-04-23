@@ -1,0 +1,11 @@
+node_modules
+dist
+coverage
+data
+genie
+omni
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log

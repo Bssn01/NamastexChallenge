@@ -1,0 +1,28 @@
+{
+  "name": "namastex-challenge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "WhatsApp research agent for the Namastex technical challenge.",
+  "license": "UNLICENSED",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "node --import tsx --test tests/*.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "biome check src tests scripts",
+    "lint:fix": "biome check --write src tests scripts",
+    "format": "biome format --write src tests scripts",
+    "deps:bootstrap": "bash scripts/bootstrap-deps.sh",
+    "demo:mock": "node --import tsx scripts/run-mock-demo.ts",
+    "seed:mock": "node --import tsx scripts/seed-mock-data.ts",
+    "local:turn": "node --import tsx scripts/local-turn.ts",
+    "omni:turn": "node --import tsx scripts/omni-turn.ts",
+    "cli": "node --import tsx src/cli.ts"
+  },
+  "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
+    "@types/node": "^22.13.4",
+    "tsx": "^4.19.3",
+    "typescript": "^5.7.3"
+  }
+}
