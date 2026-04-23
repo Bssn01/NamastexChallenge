@@ -2,8 +2,28 @@ import { loadResearchSamples } from '../fixtures.js';
 import { normalizeWhitespace } from '../lib/text.js';
 import type { ResearchSource, RuntimeMode } from '../types.js';
 
+export interface ResearchTopicContext {
+  topicGroupId?: string;
+  topicGroupLabel?: string;
+  rawIdeaText?: string;
+  mainTopic?: string;
+}
+
+export type DossierResourceCandidate = ResearchSource & {
+  topicGroupId?: string;
+  topicGroupLabel?: string;
+  origin?: string;
+  trustLevel?: 'external-untrusted';
+  score?: number;
+  query?: string;
+};
+
 export interface ArxivAdapter {
-  search(query: string, limit?: number): Promise<ResearchSource[]>;
+  search(
+    query: string,
+    limit?: number,
+    context?: ResearchTopicContext,
+  ): Promise<DossierResourceCandidate[]>;
 }
 
 export interface ArxivAdapterOptions {
@@ -11,7 +31,7 @@ export interface ArxivAdapterOptions {
   fixturePath: string;
 }
 
-function scoreAgainstQuery(source: ResearchSource, query: string): number {
+function scoreAgainstQuery(source: DossierResourceCandidate, query: string): number {
   const haystack = normalizeWhitespace(
     `${source.title} ${source.summary} ${(source.tags || []).join(' ')}`,
   ).toLowerCase();
@@ -19,13 +39,40 @@ function scoreAgainstQuery(source: ResearchSource, query: string): number {
   return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
 }
 
-function sortByQueryMatch(items: ResearchSource[], query: string): ResearchSource[] {
+function sortByQueryMatch(
+  items: DossierResourceCandidate[],
+  query: string,
+): DossierResourceCandidate[] {
   return [...items].sort(
     (left, right) => scoreAgainstQuery(right, query) - scoreAgainstQuery(left, query),
   );
 }
 
-async function parseArxivFeed(feed: string): Promise<ResearchSource[]> {
+function annotateResource(
+  source: ResearchSource,
+  query: string,
+  context?: ResearchTopicContext,
+): DossierResourceCandidate {
+  const score = scoreAgainstQuery(source, query);
+  return {
+    ...source,
+    topicGroupId: context?.topicGroupId,
+    topicGroupLabel: context?.topicGroupLabel,
+    origin: source.url || 'https://export.arxiv.org/api/query',
+    trustLevel: 'external-untrusted',
+    score,
+    query,
+    tags: Array.from(
+      new Set([
+        ...(source.tags || []),
+        'external-untrusted',
+        ...(context?.topicGroupLabel ? [context.topicGroupLabel] : []),
+      ]),
+    ),
+  };
+}
+
+async function parseArxivFeed(feed: string): Promise<DossierResourceCandidate[]> {
   const entries = feed
     .split(/<entry>/)
     .slice(1)
@@ -56,10 +103,16 @@ async function parseArxivFeed(feed: string): Promise<ResearchSource[]> {
 
 export function createArxivAdapter(options: ArxivAdapterOptions): ArxivAdapter {
   return {
-    async search(query: string, limit = 4): Promise<ResearchSource[]> {
+    async search(
+      query: string,
+      limit = 5,
+      context?: ResearchTopicContext,
+    ): Promise<DossierResourceCandidate[]> {
       if (options.mode !== 'real') {
         const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.arxiv, query).slice(0, limit);
+        return sortByQueryMatch(fixture.arxiv, query)
+          .slice(0, limit)
+          .map((source) => annotateResource(source, query, context));
       }
 
       try {
@@ -71,15 +124,23 @@ export function createArxivAdapter(options: ArxivAdapterOptions): ArxivAdapter {
         const response = await fetch(url);
         if (!response.ok) throw new Error(`arXiv request failed: ${response.status}`);
         const feed = await response.text();
-        return (await parseArxivFeed(feed)).slice(0, limit);
+        return (await parseArxivFeed(feed))
+          .slice(0, limit)
+          .map((source) => annotateResource(source, query, context));
       } catch {
         const fixture = await loadResearchSamples(options.fixturePath);
         return sortByQueryMatch(fixture.arxiv, query)
           .slice(0, limit)
-          .map((source) => ({
-            ...source,
-            tags: [...(source.tags || []), 'fixture-fallback'],
-          }));
+          .map((source) =>
+            annotateResource(
+              {
+                ...source,
+                tags: [...(source.tags || []), 'fixture-fallback'],
+              },
+              query,
+              context,
+            ),
+          );
       }
     },
   };

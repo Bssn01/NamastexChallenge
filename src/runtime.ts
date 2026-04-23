@@ -1,8 +1,10 @@
 import { createArxivAdapter } from './adapters/arxiv.js';
+import { createFieldTheoryAdapter } from './adapters/fieldtheory.js';
 import { createGitHubLabAdapter } from './adapters/github.js';
 import { createGrokAdapter } from './adapters/grok.js';
 import { createHackerNewsAdapter } from './adapters/hackernews.js';
 import { createRepomixAdapter } from './adapters/repomix.js';
+import { createXSearchAdapter } from './adapters/x.js';
 import { loadConfig } from './config.js';
 import { createGenieResearchStore } from './store/genie-research-store.js';
 
@@ -44,12 +46,28 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
     defaultOwner: config.githubOwner,
     defaultRepo: config.githubRepo,
     repoRoot: config.repoRoot,
+    repoCacheRoot: config.repoCacheRoot,
   });
 
   const repomix = createRepomixAdapter({
     mode: config.mode,
     fixturePath: config.repomixFixturePath,
     repoRoot: config.repoRoot,
+  });
+
+  const x = createXSearchAdapter({
+    mode: config.mode,
+    fixturePath: config.arxivFixturePath,
+    xaiApiKey: config.xaiApiKey,
+    openRouterApiKey: config.openRouterApiKey,
+    model: config.xSearchModel,
+  });
+
+  const fieldtheory = createFieldTheoryAdapter({
+    mode: config.mode,
+    fixturePath: config.arxivFixturePath,
+    bin: config.fieldTheoryBin,
+    dataDir: config.fieldTheoryDataDir,
   });
 
   return {
@@ -60,5 +78,7 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
     grok,
     github,
     repomix,
+    x,
+    fieldtheory,
   };
 }

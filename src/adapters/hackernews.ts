@@ -1,9 +1,14 @@
 import { loadResearchSamples } from '../fixtures.js';
 import { normalizeWhitespace } from '../lib/text.js';
 import type { ResearchSource, RuntimeMode } from '../types.js';
+import type { DossierResourceCandidate, ResearchTopicContext } from './arxiv.js';
 
 export interface HackerNewsAdapter {
-  search(query: string, limit?: number): Promise<ResearchSource[]>;
+  search(
+    query: string,
+    limit?: number,
+    context?: ResearchTopicContext,
+  ): Promise<DossierResourceCandidate[]>;
 }
 
 export interface HackerNewsAdapterOptions {
@@ -24,7 +29,7 @@ interface AlgoliaHit {
   num_comments?: number | null;
 }
 
-function toSource(hit: AlgoliaHit, index: number): ResearchSource {
+function toSource(hit: AlgoliaHit, index: number): DossierResourceCandidate {
   const url = hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`;
   const summary = normalizeWhitespace(
     hit.story_text ||
@@ -42,7 +47,7 @@ function toSource(hit: AlgoliaHit, index: number): ResearchSource {
   };
 }
 
-function scoreAgainstQuery(source: ResearchSource, query: string): number {
+function scoreAgainstQuery(source: DossierResourceCandidate, query: string): number {
   const haystack = normalizeWhitespace(
     `${source.title} ${source.summary} ${(source.tags || []).join(' ')}`,
   ).toLowerCase();
@@ -50,10 +55,36 @@ function scoreAgainstQuery(source: ResearchSource, query: string): number {
   return terms.reduce((score, term) => score + (haystack.includes(term) ? 1 : 0), 0);
 }
 
-function sortByQueryMatch(items: ResearchSource[], query: string): ResearchSource[] {
+function sortByQueryMatch(
+  items: DossierResourceCandidate[],
+  query: string,
+): DossierResourceCandidate[] {
   return [...items].sort(
     (left, right) => scoreAgainstQuery(right, query) - scoreAgainstQuery(left, query),
   );
+}
+
+function annotateResource(
+  source: DossierResourceCandidate,
+  query: string,
+  context?: ResearchTopicContext,
+): DossierResourceCandidate {
+  return {
+    ...source,
+    topicGroupId: context?.topicGroupId,
+    topicGroupLabel: context?.topicGroupLabel,
+    origin: source.url || 'https://hn.algolia.com/api/v1/search',
+    trustLevel: 'external-untrusted',
+    score: scoreAgainstQuery(source, query),
+    query,
+    tags: Array.from(
+      new Set([
+        ...(source.tags || []),
+        'external-untrusted',
+        ...(context?.topicGroupLabel ? [context.topicGroupLabel] : []),
+      ]),
+    ),
+  };
 }
 
 export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): HackerNewsAdapter {
@@ -61,10 +92,16 @@ export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): Hack
   const userAgent = options.userAgent || 'NamastexChallenge/0.1.0';
 
   return {
-    async search(query: string, limit = 4): Promise<ResearchSource[]> {
+    async search(
+      query: string,
+      limit = 5,
+      context?: ResearchTopicContext,
+    ): Promise<DossierResourceCandidate[]> {
       if (options.mode !== 'real') {
         const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.hackernews, query).slice(0, limit);
+        return sortByQueryMatch(fixture.hackernews, query)
+          .slice(0, limit)
+          .map((source) => annotateResource(source, query, context));
       }
 
       try {
@@ -83,7 +120,9 @@ export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): Hack
 
         const payload = (await response.json()) as { hits?: AlgoliaHit[] };
         const hits = payload.hits || [];
-        return hits.slice(0, limit).map(toSource);
+        return hits
+          .slice(0, limit)
+          .map((hit, index) => annotateResource(toSource(hit, index), query, context));
       } catch (error) {
         console.warn(
           `[hackernews] fallback to fixture: ${error instanceof Error ? error.message : String(error)}`,
@@ -91,10 +130,16 @@ export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): Hack
         const fixture = await loadResearchSamples(options.fixturePath);
         return sortByQueryMatch(fixture.hackernews, query)
           .slice(0, limit)
-          .map((source) => ({
-            ...source,
-            tags: [...(source.tags || []), 'fixture-fallback'],
-          }));
+          .map((source) =>
+            annotateResource(
+              {
+                ...source,
+                tags: [...(source.tags || []), 'fixture-fallback'],
+              },
+              query,
+              context,
+            ),
+          );
       }
     },
   };

@@ -14,6 +14,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   return {
     mode: runtimeMode(env.NAMASTEX_MODE),
     repoRoot,
+    repoCacheRoot: env.NAMASTEX_REPO_CACHE_DIR
+      ? resolve(repoRoot, env.NAMASTEX_REPO_CACHE_DIR)
+      : resolve(repoRoot, 'data', 'repos'),
     storePath: env.NAMASTEX_STORE_PATH
       ? resolve(repoRoot, env.NAMASTEX_STORE_PATH)
       : resolve(repoRoot, 'data', 'genie-research-store.json'),
@@ -36,5 +39,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     openRouterApiKey: env.OPENROUTER_API_KEY,
     xaiApiKey: env.XAI_API_KEY,
     grokModel: env.GROK_MODEL || 'x-ai/grok-4.1-fast',
+    xSearchModel: env.X_SEARCH_MODEL || env.GROK_MODEL || 'grok-4.20-reasoning',
+    xSearchLimit: Number(env.X_SEARCH_LIMIT || '5'),
+    fieldTheoryBin: env.FIELDTHEORY_BIN,
+    fieldTheoryDataDir: env.FT_DATA_DIR,
   };
 }
