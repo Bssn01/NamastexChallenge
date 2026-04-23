@@ -5,6 +5,8 @@ import type { ResearchSource } from './types.js';
 export interface ResearchSamples {
   arxiv: ResearchSource[];
   hackernews: ResearchSource[];
+  x?: ResearchSource[];
+  fieldtheory?: ResearchSource[];
   grok: {
     summaryLead: string;
     caution: string;
@@ -61,6 +63,39 @@ const defaultResearchSamples: ResearchSamples = {
       publishedAt: '2025-03-10',
       tags: ['hackernews', 'multi-agent', 'reliability'],
       id: 'hn-2',
+    },
+  ],
+  x: [
+    {
+      provider: 'x',
+      title: 'Thread on production WhatsApp research agents',
+      url: 'https://x.com/example/status/1',
+      summary:
+        'High-signal practitioner thread covering retrieval quality, rate limiting, and human handoff.',
+      publishedAt: '2026-04-10',
+      tags: ['x', 'agents', 'whatsapp'],
+      id: 'x-1',
+    },
+    {
+      provider: 'x',
+      title: 'Lessons from shipping repo-fit evaluation workflows',
+      url: 'https://x.com/example/status/2',
+      summary:
+        'Discussion on using repository compaction and issue triage before coding against external repos.',
+      publishedAt: '2026-04-11',
+      tags: ['x', 'repo', 'repomix'],
+      id: 'x-2',
+    },
+  ],
+  fieldtheory: [
+    {
+      provider: 'fieldtheory',
+      title: 'Bookmarked post about AI memory tools',
+      url: 'https://x.com/example/status/3',
+      summary: 'Local bookmark match about long-term memory and retrieval strategies.',
+      publishedAt: '2026-04-12',
+      tags: ['fieldtheory', 'memory'],
+      id: 'ft-1',
     },
   ],
   grok: {

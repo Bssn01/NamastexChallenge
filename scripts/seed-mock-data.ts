@@ -14,7 +14,7 @@ async function main(): Promise<void> {
   await mkdir(dataDir, { recursive: true });
   await writeJsonFile(storePath, seed);
   await writeFile(outboxPath, '', 'utf8');
-  process.stdout.write(`Seeded mock store at ${storePath}\n`);
+  process.stdout.write(`Seeded mock dossier store at ${storePath}\n`);
 }
 
 main().catch((error) => {

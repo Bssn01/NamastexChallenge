@@ -12,6 +12,7 @@ async function ensureSeededStore(repoRoot: string): Promise<void> {
     const targetDir = resolve(repoRoot, 'data');
     await mkdir(targetDir, { recursive: true });
     await writeFile(storePath, await readFile(seed, 'utf8'), 'utf8');
+    process.stdout.write(`Seeded dossier mock store at ${storePath}\n`);
   }
 }
 
