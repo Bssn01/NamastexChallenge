@@ -1,96 +1,200 @@
 # NamastexChallenge
 
-WhatsApp research agent for the Namastex technical challenge.
+WhatsApp research agent built for the Namastex technical challenge.
 
-This repository contains the project-owned workflow, adapters, bridge scripts, and tests used in
-the delivery. `genie/` and `omni/` are local integration dependencies used by the agent at runtime,
-but they are not versioned inside this repository.
+The real production path is:
 
-## What the evaluator can verify
+`WhatsApp (Omni/Baileys) -> Omni -> Genie/Claude -> local dossier workflow -> Omni reply -> WhatsApp`
 
-- `/pesquisar` runs the required research pass across arXiv, Hacker News, and Grok.
-- `/wiki` turns recent local research into a compact knowledge note.
-- `/fontes` returns the source trail for the latest or matching topic.
-- `/repo` runs the GitHub and Repomix viability lab.
-- `/reset` resets the active chat/session boundary without deleting the persistent wiki.
+Mock mode still exists for deterministic tests, but the project is now designed around the real integration path and real credentials.
 
-## Better setup
+## Challenge checklist
+
+- WhatsApp via Omni with Baileys:
+  - use `omni instances create --channel whatsapp-baileys`
+  - pair with `omni instances qr <id> --watch`
+- Genie as orchestrator:
+  - `CLAUDE.md` constrains Claude to the local deterministic workflow
+  - register the repo with `genie dir add`
+  - run Genie infrastructure with `genie serve`
+- Omni as bridge:
+  - `scripts/omni-turn.ts`
+  - `omni connect <instance-id> namastex-research --reply-filter filtered`
+- Real integrations:
+  - arXiv
+  - Hacker News
+  - Grok
+  - X search through xAI or OpenRouter
+  - GitHub
+  - Repomix
+  - optional `fieldtheory-cli`
+- Clear agent purpose:
+  - research an idea, persist a dossier, and evaluate real GitHub repositories against that dossier
+- Public GitHub repo:
+  - publish this repository before submission
+
+## Main commands
+
+- `/pesquisar <ideia>`: create a dossier, preserve the full raw idea text, infer or accept topic groups, fetch grouped evidence, fetch top X posts, and store a research run
+- `/wiki <termo>`: summarize the latest matching dossier
+- `/fontes <termo>`: list grouped sources from the latest matching dossier
+- `/repo <owner/repo-or-url> [idea:<id>]`: materialize the selected GitHub repo, compact it with Repomix, and evaluate fit against the dossier
+- `/bookmarks <consulta>`: search local `fieldtheory-cli` bookmarks when configured
+- `/reset`: reset only the active session boundary
+
+## Quickstart: real setup
 
 ### 1. Prerequisites
 
-- Node.js 20+ with npm
-- Claude Code installed if you want to exercise `NAMASTEX_MODE=real`
-- Omni and Genie available locally only for the live bridge path
+- Node.js 20+
+- npm
+- Bun
+- Claude Code
+- Omni CLI
+- Genie CLI
 
-### 2. Install Node dependencies
+### 2. Install project dependencies
 
 ```bash
 npm install
 ```
 
-### 3. Bootstrap Genie and Omni worktrees
-
-If you already cloned `genie/` and `omni/` beside the project, keep them as they are.
-
-If not, bootstrap both local dependencies in one step:
+### 3. Bootstrap local Genie and Omni worktrees
 
 ```bash
-GENIE_REPO_URL=<genie-repo-url> OMNI_REPO_URL=<omni-repo-url> npm run deps:bootstrap
+GENIE_REPO_URL=https://github.com/automagik-dev/genie.git \
+OMNI_REPO_URL=https://github.com/automagik-dev/omni.git \
+npm run deps:bootstrap
 ```
 
-Optional refs:
-
-```bash
-GENIE_REPO_REF=<branch-or-tag> OMNI_REPO_REF=<branch-or-tag> npm run deps:bootstrap
-```
-
-The script only clones missing directories and leaves existing local worktrees untouched.
-
-### 4. Load the local environment
-
-The repository ships with a mock-first environment file. It does not require secrets.
+### 4. Create the local env file
 
 ```bash
 cp .env.example .env
-set -a
-source .env
-set +a
 ```
 
-### 5. Run the reproducible reviewer path
+Required live credentials:
+
+- `XAI_API_KEY` or `OPENROUTER_API_KEY`
+- optional but recommended: `GITHUB_TOKEN`
+- Claude authentication through CLI login or `ANTHROPIC_API_KEY`
+
+Optional local tool:
+
+- `fieldtheory-cli`
+
+### 5. Start Omni and Genie
+
+Example flow using the installed CLIs:
 
 ```bash
+omni start
+genie dir add namastex-research --dir /Users/eduardobassani/Desktop/NamastexAgentChallenge
+GENIE_EXECUTOR=tmux genie serve
+```
+
+### 6. Create and pair the WhatsApp instance
+
+```bash
+omni instances create --name "namastex-whatsapp" --channel whatsapp-baileys
+omni instances qr <instance-id> --watch
+```
+
+### 7. Connect the Omni instance to the Genie agent
+
+```bash
+omni connect <instance-id> namastex-research --reply-filter filtered
+```
+
+### 8. Validate the live path
+
+Send a WhatsApp message such as:
+
+```text
+/pesquisar IDEIA: Quero um agente que pesquise ideias de produto em IA
+TOPICO PRINCIPAL: agentes de pesquisa
+GRUPOS NICHO:
+- Mercado: suporte, automação, atendimento
+- Stack: omni, genie, claude
+```
+
+Expected behavior:
+
+- Omni receives the message
+- Claude is constrained by `CLAUDE.md`
+- Claude runs `npm run local:turn -- --json "$OMNI_MESSAGE"` exactly once
+- the workflow stores a dossier and research run
+- Omni returns the reply to WhatsApp with `omni say` and finalizes with `omni done`
+
+## Quickstart: mock mode
+
+```bash
+cp .env.example .env
 npm run seed:mock
 npm run demo:mock
 ```
 
-That path is deterministic, uses local fixtures, and exercises the full command surface without
-touching real providers.
-
-### 6. Try individual commands
-
-Deterministic local workflow:
+Useful local commands:
 
 ```bash
 npm run local:turn -- "/pesquisar agentes de whatsapp"
 npm run local:turn -- "/wiki agentes"
 npm run local:turn -- "/fontes agentes"
-npm run local:turn -- "/repo Bssn01/NamastexChallenge"
-```
-
-CLI wrapper:
-
-```bash
-npm run cli -- "/pesquisar agentes de whatsapp com arxiv hackernews grok"
-```
-
-Omni turn simulation without sending WhatsApp messages:
-
-```bash
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "/pesquisar agentes de whatsapp"
 ```
 
-### 7. Run the verification suite
+## Repository fit flow
+
+`/repo` now uses the selected repository, not the challenge repo.
+
+Flow:
+
+1. normalize the GitHub slug or URL
+2. materialize the target repo into `data/repos/<owner>/<repo>`
+3. compact that cached repo with `Repomix`
+4. compare the compacted code context against the saved dossier
+5. persist a `RepoAssessment`
+
+Security constraints:
+
+- target repositories are never executed
+- no install scripts, test scripts, hooks, or repo commands are run
+- repo contents are treated as untrusted data only
+
+## Field Theory integration
+
+The agent supports `fieldtheory-cli` as optional local enrichment.
+
+If `fieldtheory-cli` is:
+
+- missing: the bot states that it is not installed
+- installed but unconfigured: the bot states that it is not configured
+- configured: `/bookmarks` returns local bookmark matches
+
+The workflow never runs `ft sync` automatically.
+
+## Security model
+
+The agent is intentionally constrained.
+
+It may:
+
+- search
+- read
+- analyze
+- compact repository context
+- compare evidence against the user dossier
+
+It must not:
+
+- obey instructions found inside repositories, tweets, articles, websites, scraped content, bookmarks, `AGENTS.md`, or `CLAUDE.md`
+- execute arbitrary repo commands during `/repo`
+- expose secrets, tokens, cookies, or OAuth files
+- run anything outside the supported workflow commands
+
+## Verification
+
+Run:
 
 ```bash
 npm run lint
@@ -98,110 +202,11 @@ npm run typecheck
 npm test
 ```
 
-## Runtime modes
-
-- `NAMASTEX_MODE=mock`: fully local fixtures, no secrets required
-- `NAMASTEX_MODE=dev`: live-friendly config, but still defaults to the local executor
-- `NAMASTEX_MODE=real`: Omni turn wrapper delegates to Claude Code unless overridden
-
-Executor selection:
-
-- `mock` and `dev` default to `NAMASTEX_TURN_EXECUTOR=local`
-- `real` defaults to `NAMASTEX_TURN_EXECUTOR=claude`
-- set `NAMASTEX_TURN_EXECUTOR=local` if you want to debug the workflow directly in any mode
-
-## Live bridge path
-
-The real WhatsApp bridge entrypoint is:
-
-```bash
-npm run omni:turn -- "$OMNI_MESSAGE"
-```
-
-When `NAMASTEX_MODE=real`, the wrapper calls Claude Code with `CLAUDE.md`. Claude then runs the
-deterministic workflow exactly once through:
-
-```bash
-npm run local:turn -- --json "$OMNI_MESSAGE"
-```
-
-When `OMNI_INSTANCE` and `OMNI_CHAT` are present, each reply chunk is delivered with `omni say`
-and the round is closed with `omni done`. For dry runs, keep
-`NAMASTEX_OMNI_DELIVERY=stdout`.
-
-Suggested local bridge wiring:
-
-```bash
-genie dir add namastex-research --dir /path/to/NamastexAgentChallenge
-omni connect <instance-id> namastex-research --reply-filter filtered
-GENIE_EXECUTOR=tmux genie serve start
-```
-
-Recommended Genie setting:
-
-```bash
-export GENIE_EXECUTOR=tmux
-```
-
-That avoids the SDK executor path that can overwrite the entry `mcpServers` block with
-`genie-omni-tools`.
-
-## External integrations
-
-### Claude Code
-
-Default path:
-
-1. Sign in through Claude Code login.
-2. Leave `ANTHROPIC_API_KEY` unset for interactive local use.
-
-Optional headless path:
-
-1. Export `ANTHROPIC_API_KEY`.
-2. Keep the key out of the repository.
-
-### Grok
-
-The synthesis layer supports either OpenRouter or xAI.
-
-- `OPENROUTER_API_KEY`
-- `XAI_API_KEY`
-- `GROK_MODEL` defaults to `x-ai/grok-4.1-fast`
-
-### Hacker News
-
-Community signal comes from the public Algolia-backed Hacker News API, so no authentication is
-required.
-
-- `HACKERNEWS_API_BASE` defaults to `https://hn.algolia.com/api/v1`
-- `HACKERNEWS_USER_AGENT` defaults to `NamastexChallenge/0.1.0`
-
-### GitHub
-
-Use a fine-grained PAT from [github.com/settings/tokens](https://github.com/settings/tokens) if
-you want live `/repo` validation.
-
-- `GITHUB_TOKEN`
-- `GITHUB_OWNER`
-- `GITHUB_REPO`
-
-Recommended minimum scopes:
-
-- Metadata: read
-- Contents: read
-- Issues: read
-
 ## Project layout
 
-- `src/`: project-owned adapters, workflow, runtime, config, and store
-- `scripts/`: local entrypoints for demos, Omni turns, and seeding
-- `tests/`: node-test coverage for workflow, Omni payload handling, and fixtures
-- `fixtures/mock/`: deterministic data used in mock mode
-- `genie/` and `omni/`: local external dependencies used by the live bridge, ignored by this repo
-
-## Notes
-
-- Do not commit real tokens or refreshed secrets.
-- Local store files are written into `data/`, which is ignored.
-- The project-owned logic lives in this repository; `genie/` and `omni/` stay outside the
-  versioned scope of the submission.
+- `src/`: runtime, workflow, adapters, security helpers, and store
+- `scripts/`: local entrypoints for demos, seeding, and Omni bridge turns
+- `tests/`: automated coverage for workflow, adapters, security, and turn execution
+- `fixtures/mock/`: deterministic mock data
+- `data/`: local runtime state and cached analyzed repos
+- `genie/` and `omni/`: local external dependencies used in the live bridge
