@@ -74,11 +74,45 @@ npm run deps:bootstrap
 cp .env.example .env
 ```
 
-Required live credentials:
+Open `.env` and make these changes:
 
-- `XAI_API_KEY` or `OPENROUTER_API_KEY`
-- optional but recommended: `GITHUB_TOKEN`
-- Claude authentication through CLI login or `ANTHROPIC_API_KEY`
+**Required:**
+
+```env
+NAMASTEX_MODE=live          # change from mock to live
+```
+
+**Claude authentication** — pick one:
+
+```env
+# Option A: already logged in via `claude login` (no change needed)
+# Option B: headless / CI
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+**Grok synthesis** — uncomment one:
+
+```env
+XAI_API_KEY=xai-...
+# or
+OPENROUTER_API_KEY=sk-or-...
+```
+
+**GitHub** (recommended — avoids rate limits):
+
+```env
+GITHUB_TOKEN=ghp_...
+```
+
+**Leave these commented** — they have sensible defaults built in:
+
+| Variable | Default |
+|---|---|
+| `HACKERNEWS_API_BASE` | `https://hn.algolia.com/api/v1` |
+| `GROK_MODEL` | `x-ai/grok-4.1-fast` |
+| `X_SEARCH_MODEL` | `grok-4.20-reasoning` |
+| `X_SEARCH_LIMIT` | `5` |
+| `GITHUB_OWNER` / `GITHUB_REPO` | optional — only set to pin a default repo for `/repo` |
 
 Optional local tools:
 
