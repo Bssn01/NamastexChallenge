@@ -5,6 +5,9 @@
   "type": "module",
   "description": "WhatsApp research agent for the Namastex technical challenge.",
   "license": "UNLICENSED",
+  "dependencies": {
+    "repomix": "^1.6.0"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.build.json",
     "test": "node --import tsx --test tests/*.test.ts",
