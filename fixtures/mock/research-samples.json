@@ -1,0 +1,46 @@
+{
+  "arxiv": [
+    {
+      "provider": "arxiv",
+      "title": "Agentic workflows for message-first research systems",
+      "url": "https://arxiv.org/abs/2401.00001",
+      "summary": "A concise pattern for separating retrieval, synthesis, and delivery in chat-driven agents.",
+      "publishedAt": "2025-01-18",
+      "tags": ["agents", "retrieval", "messaging"],
+      "id": "arxiv-1"
+    },
+    {
+      "provider": "arxiv",
+      "title": "Low-latency orchestration for collaborative LLM swarms",
+      "url": "https://arxiv.org/abs/2401.00002",
+      "summary": "Shows how bounded concurrency and explicit handoff contracts reduce chat tool drift.",
+      "publishedAt": "2025-02-04",
+      "tags": ["orchestration", "latency", "swarm"],
+      "id": "arxiv-2"
+    }
+  ],
+  "hackernews": [
+    {
+      "provider": "hackernews",
+      "title": "Practical lessons from building WhatsApp-native assistants",
+      "url": "https://news.ycombinator.com/item?id=44000001",
+      "summary": "142 points • 87 comments • by pg",
+      "publishedAt": "2025-03-02",
+      "tags": ["hackernews", "agents", "whatsapp"],
+      "id": "hn-1"
+    },
+    {
+      "provider": "hackernews",
+      "title": "What made our multi-agent setup reliable in production",
+      "url": "https://news.ycombinator.com/item?id=44000002",
+      "summary": "98 points • 41 comments • by tptacek",
+      "publishedAt": "2025-03-10",
+      "tags": ["hackernews", "multi-agent", "reliability"],
+      "id": "hn-2"
+    }
+  ],
+  "grok": {
+    "summaryLead": "Grok synthesis says the safest MVP is one that always research-checks three layers: academic signal, practitioner signal, and a short synthesis pass.",
+    "caution": "Keep the response short enough for WhatsApp and persist the evidence trail before any handoff."
+  }
+}

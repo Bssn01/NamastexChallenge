@@ -1,0 +1,11 @@
+Repository pack snapshot:
+Root: /mock/repo
+Files: 8
+- README.md
+- package.json
+- src/cli.ts
+- src/workflow.ts
+- src/runtime.ts
+- src/store/genie-research-store.ts
+- scripts/run-mock-demo.ts
+- tests/workflow.test.ts

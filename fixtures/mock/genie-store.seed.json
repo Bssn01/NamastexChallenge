@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "sessionId": "seed-session",
+  "updatedAt": "2026-04-22T00:00:00.000Z",
+  "records": [
+    {
+      "id": "seed-record-1",
+      "query": "agentes de whatsapp",
+      "createdAt": "2026-04-22T00:00:00.000Z",
+      "summary": "Seed summary for the mock demo.",
+      "sources": [],
+      "sessionId": "seed-session",
+      "mode": "mock",
+      "notes": ["seeded"]
+    }
+  ],
+  "tasks": [],
+  "events": []
+}
