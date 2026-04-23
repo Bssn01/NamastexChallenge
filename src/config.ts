@@ -42,6 +42,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     xSearchModel: env.X_SEARCH_MODEL || env.GROK_MODEL || 'grok-4.20-reasoning',
     xSearchLimit: Number(env.X_SEARCH_LIMIT || '5'),
     fieldTheoryBin: env.FIELDTHEORY_BIN,
-    fieldTheoryDataDir: env.FT_DATA_DIR,
+    fieldTheoryDataDir: env.FT_DATA_DIR
+      ? resolve(repoRoot, env.FT_DATA_DIR)
+      : resolve(repoRoot, 'data', 'fieldtheory'),
+    genieBrainBin: env.GENIE_BRAIN_BIN || 'genie',
+    genieBrainIngestDir: env.GENIE_BRAIN_INGEST_DIR
+      ? resolve(repoRoot, env.GENIE_BRAIN_INGEST_DIR)
+      : resolve(repoRoot, 'data', 'brain-ingest'),
+    genieBrainSearchLimit: Number(env.GENIE_BRAIN_SEARCH_LIMIT || '5'),
   };
 }

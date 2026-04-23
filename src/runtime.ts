@@ -1,5 +1,6 @@
 import { createArxivAdapter } from './adapters/arxiv.js';
 import { createFieldTheoryAdapter } from './adapters/fieldtheory.js';
+import { createGenieBrainAdapter } from './adapters/genie-brain.js';
 import { createGitHubLabAdapter } from './adapters/github.js';
 import { createGrokAdapter } from './adapters/grok.js';
 import { createHackerNewsAdapter } from './adapters/hackernews.js';
@@ -70,6 +71,12 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
     dataDir: config.fieldTheoryDataDir,
   });
 
+  const genieBrain = createGenieBrainAdapter({
+    mode: config.mode,
+    bin: config.genieBrainBin,
+    ingestDir: config.genieBrainIngestDir,
+  });
+
   return {
     config,
     store,
@@ -80,5 +87,6 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
     repomix,
     x,
     fieldtheory,
+    genieBrain,
   };
 }

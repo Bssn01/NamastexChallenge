@@ -5,6 +5,7 @@ import type {
   ResearchTopicContext,
 } from './adapters/arxiv.js';
 import type { FieldTheoryAdapter } from './adapters/fieldtheory.js';
+import type { GenieBrainAdapter } from './adapters/genie-brain.js';
 import type { GitHubLabAdapter, GitHubLabReport } from './adapters/github.js';
 import type { GrokAdapter, GrokSummary } from './adapters/grok.js';
 import type { HackerNewsAdapter } from './adapters/hackernews.js';
@@ -36,6 +37,7 @@ export interface AppServices {
   repomix: RepomixAdapter;
   x: XSearchAdapter;
   fieldtheory: FieldTheoryAdapter;
+  genieBrain: GenieBrainAdapter;
 }
 
 export interface WorkflowResult {
@@ -476,6 +478,28 @@ export async function runPesquisaWorkflow(
 
   const refreshedDossier = (await services.store.getDossier(dossier.id)) || dossier;
   const diagnostics = groupData.flatMap((item) => item.diagnostics);
+
+  const brainIngest = await services.genieBrain.ingest({
+    dossierId: refreshedDossier.id,
+    mainTopic: refreshedDossier.mainTopic,
+    rawIdeaText: refreshedDossier.rawIdeaText,
+    crossGroupSummary: researchRun.crossGroupSummary,
+    groupResults: researchRun.groupResults.map((group) => ({
+      label: group.topicGroupLabel,
+      summary: group.summary,
+      resourceTitles: group.resources.map((resource) => resource.title),
+    })),
+  });
+  const brainNote =
+    brainIngest.state === 'ready' && brainIngest.ingestPath
+      ? 'Brain: dossiê ingerido'
+      : brainIngest.state === 'ready'
+        ? 'Brain: modo mock (ingest desativado)'
+        : brainIngest.state === 'missing'
+          ? 'Brain: não instalado'
+          : 'Brain: não configurado';
+  diagnostics.push(brainNote);
+
   return {
     chunks: chunkText(formatResearchReply(refreshedDossier, researchRun, summary, diagnostics)),
     metadata: {
@@ -483,6 +507,11 @@ export async function runPesquisaWorkflow(
       researchRunId: researchRun.id,
       topicGroups: refreshedDossier.topicGroups,
       diagnostics,
+      brain: {
+        state: brainIngest.state,
+        ingestPath: brainIngest.ingestPath,
+        notes: brainIngest.notes,
+      },
     },
   };
 }
@@ -491,13 +520,42 @@ export async function runWikiWorkflow(
   topic: string,
   services: AppServices,
 ): Promise<WorkflowResult> {
-  const dossier = await selectDossier(services, undefined, normalizeWhitespace(topic));
-  const text = dossier
+  const normalizedTopic = normalizeWhitespace(topic);
+  const [dossier, brainResult] = await Promise.all([
+    selectDossier(services, undefined, normalizedTopic),
+    services.genieBrain.search(
+      normalizedTopic || 'recente',
+      services.config.genieBrainSearchLimit,
+    ),
+  ]);
+
+  const baseText = dossier
     ? formatWikiReply(dossier)
     : 'Wiki: recente\n\nAinda não existe base local para esse tópico. Rode /pesquisar primeiro.';
+
+  const brainSection =
+    brainResult.sources.length > 0
+      ? [
+          '',
+          'Brain:',
+          ...brainResult.sources.map((source, index) => formatResource(source, index)),
+        ].join('\n')
+      : brainResult.state === 'missing'
+        ? '\nBrain: não instalado'
+        : brainResult.state === 'unconfigured'
+          ? '\nBrain: não configurado'
+          : '';
+
   return {
-    chunks: chunkText(text),
-    metadata: { dossierId: dossier?.id },
+    chunks: chunkText(`${baseText}${brainSection}`),
+    metadata: {
+      dossierId: dossier?.id,
+      brain: {
+        state: brainResult.state,
+        count: brainResult.sources.length,
+        notes: brainResult.notes,
+      },
+    },
   };
 }
 

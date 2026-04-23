@@ -7,7 +7,8 @@ export type ResearchProvider =
   | 'github'
   | 'repomix'
   | 'x'
-  | 'fieldtheory';
+  | 'fieldtheory'
+  | 'genie-brain';
 
 export type TopicGroupKind = 'main' | 'niche';
 export type SourceTrustLevel = 'external-untrusted';
@@ -142,4 +143,7 @@ export interface AppConfig {
   xSearchLimit: number;
   fieldTheoryBin?: string;
   fieldTheoryDataDir?: string;
+  genieBrainBin: string;
+  genieBrainIngestDir: string;
+  genieBrainSearchLimit: number;
 }

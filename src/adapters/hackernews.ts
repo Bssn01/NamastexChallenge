@@ -97,13 +97,6 @@ export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): Hack
       limit = 5,
       context?: ResearchTopicContext,
     ): Promise<DossierResourceCandidate[]> {
-      if (options.mode !== 'real') {
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.hackernews, query)
-          .slice(0, limit)
-          .map((source) => annotateResource(source, query, context));
-      }
-
       try {
         const url = new URL(`${apiBase}/search`);
         url.searchParams.set('query', query);

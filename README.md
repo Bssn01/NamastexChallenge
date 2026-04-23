@@ -22,12 +22,13 @@ Mock mode still exists for deterministic tests, but the project is now designed 
   - `omni connect <instance-id> namastex-research --reply-filter filtered`
 - Real integrations:
   - arXiv
-  - Hacker News
+  - Hacker News (live by default — no auth required)
   - Grok
   - X search through xAI or OpenRouter
   - GitHub
   - Repomix
   - optional `fieldtheory-cli`
+  - optional `genie brain` knowledge graph
 - Clear agent purpose:
   - research an idea, persist a dossier, and evaluate real GitHub repositories against that dossier
 - Public GitHub repo:
@@ -35,8 +36,8 @@ Mock mode still exists for deterministic tests, but the project is now designed 
 
 ## Main commands
 
-- `/pesquisar <ideia>`: create a dossier, preserve the full raw idea text, infer or accept topic groups, fetch grouped evidence, fetch top X posts, and store a research run
-- `/wiki <termo>`: summarize the latest matching dossier
+- `/pesquisar <ideia>`: create a dossier, fetch grouped evidence (arXiv + HN + X + FieldTheory), synthesize with Grok, store a research run, and ingest the dossier into Genie Brain
+- `/wiki <termo>`: summarize the latest matching local dossier and augment with Genie Brain knowledge graph results
 - `/fontes <termo>`: list grouped sources from the latest matching dossier
 - `/repo <owner/repo-or-url> [idea:<id>]`: materialize the selected GitHub repo, compact it with Repomix, and evaluate fit against the dossier
 - `/bookmarks <consulta>`: search local `fieldtheory-cli` bookmarks when configured
@@ -79,9 +80,10 @@ Required live credentials:
 - optional but recommended: `GITHUB_TOKEN`
 - Claude authentication through CLI login or `ANTHROPIC_API_KEY`
 
-Optional local tool:
+Optional local tools:
 
-- `fieldtheory-cli`
+- `fieldtheory-cli` (local bookmark enrichment)
+- `genie brain` knowledge graph (requires `genie brain install` + `genie brain init`)
 
 ### 5. Start Omni and Genie
 
@@ -169,9 +171,30 @@ If `fieldtheory-cli` is:
 
 - missing: the bot states that it is not installed
 - installed but unconfigured: the bot states that it is not configured
-- configured: `/bookmarks` returns local bookmark matches
+- configured: `/bookmarks` returns local bookmark matches; results also flow into `/pesquisar` alongside arXiv and HN
+
+Data directory defaults to `data/fieldtheory`. Override with `FT_DATA_DIR=<path>`.
 
 The workflow never runs `ft sync` automatically.
+
+## Genie Brain integration
+
+The agent integrates with `genie brain` as an optional persistent knowledge graph.
+
+If `genie brain` is:
+
+- missing: noted in diagnostics, workflow continues without it
+- installed but vault not initialized: noted in diagnostics, workflow continues without it
+- ready: every `/pesquisar` run ingests the dossier into Brain; every `/wiki` query also searches Brain and appends results under a "Brain:" section
+
+Setup:
+
+```bash
+genie brain install
+genie brain init --name namastex-research --path ./data/brain-vault
+```
+
+Ingest artifacts are written to `data/brain-ingest/<dossier-id>.md`. Override with `GENIE_BRAIN_INGEST_DIR=<path>`.
 
 ## Security model
 
@@ -205,8 +228,9 @@ npm test
 ## Project layout
 
 - `src/`: runtime, workflow, adapters, security helpers, and store
+  - `src/adapters/`: arXiv, HackerNews, Grok, GitHub, Repomix, X, FieldTheory, GenieBrain
 - `scripts/`: local entrypoints for demos, seeding, and Omni bridge turns
 - `tests/`: automated coverage for workflow, adapters, security, and turn execution
 - `fixtures/mock/`: deterministic mock data
-- `data/`: local runtime state and cached analyzed repos
+- `data/`: local runtime state, cached analyzed repos, brain ingest artifacts
 - `genie/` and `omni/`: local external dependencies used in the live bridge
