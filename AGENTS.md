@@ -1,27 +1,17 @@
 # NamastexAgentChallenge
 
-## Agents
+## Agent Notes
 
-This project is managed by Genie CLI.
-
-The WhatsApp-facing Genie agent should follow `CLAUDE.md` and delegate inbound turns to:
-
-```bash
-cd /Users/bassani/Desktop/NamastexChallenge
-npm run local:turn -- --json "<user-message>"
-```
-
-In Genie SDK bridge mode the prompt text is the WhatsApp message. Do not rely on `$OMNI_MESSAGE`; it may be only the provider message id.
-
-In Genie tmux/WhatsApp mode, parse the JSON stdout, send each `chunks[]` item with `omni say "..."`, and finish the turn with `omni done`.
-
-## Bridge paths
-
-1. **Genie already configured** — Genie calls the wrapper local (`scripts/omni-turn.ts`).
-2. **Without depending on a patched Genie** — Omni can use the repo-native bridge (`npm run bridge:omni`) which listens on NATS and delegates to `npm run omni:turn`.
+- This project is managed by Genie CLI.
+- The WhatsApp-facing Genie agent should follow `CLAUDE.md` and delegate each inbound turn to `npm run local:turn -- --json "<user-message>"`.
+- The supported WhatsApp interface is natural language first. Slash commands remain only as hidden backward compatibility.
+- There is no mock/demo runtime in this repository.
+- Keep tests, docs, and prompts aligned with the real-only path.
+- Claude remains the source-of-truth interactor for the live Genie handoff. Codex, OpenRouter models, Moonshot, Anthropic API, and xAI are first-class fallback providers configured through `NAMASTEX_LLM_PRIMARY` and `NAMASTEX_LLM_FALLBACKS`.
 
 ## Conventions
 
-- Follow existing code style and patterns
-- Write tests for new functionality
-- Use conventional commits
+- Follow existing code style and patterns.
+- Write tests for new behavior.
+- Prefer real integrations, but keep tests hermetic with fake services or stubbed executors.
+- Use conventional commits when committing changes.

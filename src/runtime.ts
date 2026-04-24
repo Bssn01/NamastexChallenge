@@ -13,66 +13,48 @@ export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
   const config = loadConfig(env);
 
   const store = createGenieResearchStore({
-    mode: config.mode,
     storePath: config.storePath,
     outboxPath: config.storeOutboxPath,
     sessionId: config.sessionId,
   });
 
-  const arxiv = createArxivAdapter({
-    mode: config.mode,
-    fixturePath: config.arxivFixturePath,
-  });
+  const arxiv = createArxivAdapter();
 
   const hackernews = createHackerNewsAdapter({
-    mode: config.mode,
-    fixturePath: config.hackerNewsFixturePath,
     apiBase: config.hackerNewsApiBase,
     userAgent: config.hackerNewsUserAgent,
   });
 
   const grok = createGrokAdapter({
-    mode: config.mode,
-    fixturePath: config.grokFixturePath,
-    openRouterApiKey: config.openRouterApiKey,
-    xaiApiKey: config.xaiApiKey,
-    model: config.grokModel,
+    llm: config.llm,
+    repoRoot: config.repoRoot,
   });
 
   const github = createGitHubLabAdapter({
-    mode: config.mode,
-    fixturePath: config.githubFixturePath,
     githubApiBase: config.githubApiBase,
     githubToken: config.githubToken,
-    defaultOwner: config.githubOwner,
-    defaultRepo: config.githubRepo,
+    defaultOwner: config.defaultGithubOwner,
+    defaultRepo: config.defaultGithubRepo,
     repoRoot: config.repoRoot,
     repoCacheRoot: config.repoCacheRoot,
   });
 
   const repomix = createRepomixAdapter({
-    mode: config.mode,
-    fixturePath: config.repomixFixturePath,
     repoRoot: config.repoRoot,
   });
 
   const x = createXSearchAdapter({
-    mode: config.mode,
-    fixturePath: config.arxivFixturePath,
-    xaiApiKey: config.xaiApiKey,
-    openRouterApiKey: config.openRouterApiKey,
+    xaiApiKey: config.llm.xaiKey,
+    openRouterApiKey: config.llm.openrouterKey,
     model: config.xSearchModel,
   });
 
   const fieldtheory = createFieldTheoryAdapter({
-    mode: config.mode,
-    fixturePath: config.arxivFixturePath,
     bin: config.fieldTheoryBin,
     dataDir: config.fieldTheoryDataDir,
   });
 
   const genieBrain = createGenieBrainAdapter({
-    mode: config.mode,
     bin: config.genieBrainBin,
     ingestDir: config.genieBrainIngestDir,
   });

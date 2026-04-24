@@ -1,15 +1,7 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { promisify } from 'node:util';
-import {
-  extractOmniText,
-  resolveTurnExecutor,
-  runAutoTurn,
-  runClaudeTurn,
-  runCodexTurn,
-  runKimiTurn,
-  runLocalTurn,
-} from '../src/turn-execution.js';
+import { extractOmniText, runLocalTurn, runTurnWithProviders } from '../src/turn-execution.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -32,18 +24,13 @@ async function markDone(env: Env): Promise<void> {
 }
 
 async function main(): Promise<void> {
-  const command = extractOmniText(process.argv.slice(2), process.env) || '/wiki recente';
-  const executor = resolveTurnExecutor(process.env);
+  const command =
+    extractOmniText(process.argv.slice(2), process.env) ||
+    'o que temos salvo sobre o tema mais recente?';
   const reply =
-    executor === 'auto'
-      ? await runAutoTurn(command, process.env)
-      : executor === 'claude'
-        ? await runClaudeTurn(command, process.env)
-        : executor === 'codex'
-          ? await runCodexTurn(command, process.env)
-          : executor === 'kimi'
-            ? await runKimiTurn(command, process.env)
-            : await runLocalTurn(command, process.env);
+    process.env.NAMASTEX_LOCAL_TURN_ONLY === '1'
+      ? await runLocalTurn(command, process.env)
+      : await runTurnWithProviders(command, process.env);
 
   if (shouldDeliverToOmni(process.env)) {
     for (const chunk of reply.chunks) {

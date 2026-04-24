@@ -1,7 +1,5 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { promisify } from 'node:util';
-import { loadResearchSamples } from '../fixtures.js';
-import type { RuntimeMode } from '../types.js';
 import type { DossierResourceCandidate, ResearchTopicContext } from './arxiv.js';
 
 const execFile = promisify(execFileCallback);
@@ -23,8 +21,6 @@ export interface FieldTheoryAdapter {
 }
 
 export interface FieldTheoryAdapterOptions {
-  mode: RuntimeMode;
-  fixturePath: string;
   bin?: string;
   dataDir?: string;
 }
@@ -43,7 +39,7 @@ function parseOutput(
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index]?.trim();
-    if (!line || !/^\d+\.\s/.test(line)) continue;
+    if (!line || /^\d+\.\s/.test(line)) continue;
 
     const author = line.match(/^\d+\.\s+\[(.*?)\]\s+@(\S+)/);
     const title = lines[index + 1]?.trim() || `Field Theory result ${sources.length + 1}`;
@@ -84,23 +80,6 @@ export function createFieldTheoryAdapter(options: FieldTheoryAdapterOptions): Fi
       limit = 5,
       context?: ResearchTopicContext,
     ): Promise<FieldTheorySearchResult> {
-      if (options.mode !== 'real') {
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return {
-          state: 'ready',
-          sources: (fixture.fieldtheory || []).slice(0, limit).map((source, index) => ({
-            ...source,
-            origin: 'fieldtheory-fixture',
-            trustLevel: 'external-untrusted',
-            score: Math.max(1, 100 - index),
-            topicGroupId: context?.topicGroupId,
-            topicGroupLabel: context?.topicGroupLabel,
-            query,
-          })),
-          notes: ['Mock Field Theory results loaded from fixtures.'],
-        };
-      }
-
       try {
         await execFile(bin, ['status'], {
           env: envWithDataDir(options.dataDir),

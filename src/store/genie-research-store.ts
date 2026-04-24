@@ -9,7 +9,6 @@ import type {
   ResearchRun,
   ResearchRunGroupResult,
   ResearchSource,
-  RuntimeMode,
   TopicGroup,
 } from '../types.js';
 
@@ -89,7 +88,6 @@ export interface GenieResearchStore {
 }
 
 export interface GenieResearchStoreOptions {
-  mode: RuntimeMode;
   storePath: string;
   outboxPath: string;
   sessionId: string;
@@ -202,7 +200,6 @@ function toLegacyResearchRecord(dossier: IdeaDossier, researchRun: ResearchRun):
     summary: researchRun.crossGroupSummary,
     sources: flattenRunResources(researchRun),
     sessionId: researchRun.sessionId,
-    mode: researchRun.mode,
     notes: [...researchRun.notes],
     dossierId: dossier.id,
     researchRunId: researchRun.id,
@@ -254,7 +251,6 @@ function migrateRecordToDossier(record: ResearchRecord): IdeaDossier {
         dossierId,
         createdAt: record.createdAt,
         sessionId: record.sessionId,
-        mode: record.mode,
         groupResults: [
           {
             topicGroupId,
@@ -269,16 +265,11 @@ function migrateRecordToDossier(record: ResearchRecord): IdeaDossier {
       },
     ],
     repoAssessments: [],
-    mode: record.mode,
     notes: [...record.notes],
   };
 }
 
-function normalizeDossier(
-  dossier: IdeaDossier,
-  fallbackSessionId: string,
-  fallbackMode: RuntimeMode,
-): IdeaDossier {
+function normalizeDossier(dossier: IdeaDossier, fallbackSessionId: string): IdeaDossier {
   const topicGroups =
     dossier.topicGroups && dossier.topicGroups.length > 0
       ? dossier.topicGroups.map(asTopicGroup)
@@ -298,7 +289,6 @@ function normalizeDossier(
         dossierId: dossier.id,
         createdAt: researchRun.createdAt,
         sessionId: researchRun.sessionId || dossier.sessionId || fallbackSessionId,
-        mode: researchRun.mode || dossier.mode || fallbackMode,
         groupResults: (researchRun.groupResults || []).map(asResearchRunGroupResult),
         crossGroupSummary: researchRun.crossGroupSummary,
         notes: researchRun.notes ? [...researchRun.notes] : [],
@@ -323,7 +313,6 @@ function normalizeDossier(
         notes: repoAssessment.notes ? [...repoAssessment.notes] : [],
       })),
     ),
-    mode: dossier.mode || fallbackMode,
     notes: dossier.notes ? [...dossier.notes] : [],
   };
 }
@@ -331,14 +320,13 @@ function normalizeDossier(
 function normalizeSnapshot(
   raw: GenieStoreSnapshot | LegacyGenieStoreSnapshot,
   sessionId: string,
-  mode: RuntimeMode,
 ): GenieStoreSnapshot {
   if ('dossiers' in raw && Array.isArray(raw.dossiers)) {
     return syncLegacyRecords({
       version: 2,
       sessionId: raw.sessionId || sessionId,
       updatedAt: raw.updatedAt || new Date().toISOString(),
-      dossiers: raw.dossiers.map((dossier) => normalizeDossier(dossier, sessionId, mode)),
+      dossiers: raw.dossiers.map((dossier) => normalizeDossier(dossier, sessionId)),
       records: Array.isArray(raw.records) ? raw.records : [],
       tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
       events: Array.isArray(raw.events) ? raw.events : [],
@@ -375,7 +363,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
         mainTopic: entity.dossier.mainTopic,
         rawIdeaText: entity.dossier.rawIdeaText,
         topicGroupCount: entity.dossier.topicGroups.length,
-        mode: entity.dossier.mode,
+        mode: 'real',
       },
     };
   }
@@ -397,7 +385,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
         topicGroupCount: entity.researchRun.groupResults.length,
         resourceCount: resources.length,
         sourceProviders: collectSourceProviders(resources),
-        mode: entity.researchRun.mode,
+        mode: 'real',
       },
     };
   }
@@ -413,7 +401,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
       repoAssessmentId: entity.repoAssessment.id,
       targetRepo: entity.repoAssessment.targetRepo.canonicalSlug,
       fitScore: entity.repoAssessment.fitScore,
-      mode: entity.dossier.mode,
+      mode: 'real',
     },
   };
 }
@@ -478,7 +466,7 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
       statePromise = readJsonFile<GenieStoreSnapshot | LegacyGenieStoreSnapshot>(
         options.storePath,
         emptySnapshot(currentSessionId),
-      ).then((snapshot) => normalizeSnapshot(snapshot, currentSessionId, options.mode));
+      ).then((snapshot) => normalizeSnapshot(snapshot, currentSessionId));
     }
     return statePromise;
   }
@@ -491,13 +479,11 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
   }
 
   async function emitOutbox(entry: GenieTaskEvent): Promise<void> {
-    if (options.mode === 'real') {
-      await appendJsonLine(options.outboxPath, {
-        ...entry,
-        transport: 'genie-local-outbox',
-        mappedTo: entry.kind === 'task' ? 'Genie task' : 'Genie event',
-      });
-    }
+    await appendJsonLine(options.outboxPath, {
+      ...entry,
+      transport: 'genie-local-outbox',
+      mappedTo: entry.kind === 'task' ? 'Genie task' : 'Genie event',
+    });
   }
 
   async function emitEntries(...entries: GenieTaskEvent[]): Promise<void> {
@@ -525,7 +511,6 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
           : createDefaultTopicGroups(input.rawIdeaText, input.mainTopic),
       researchRuns: [],
       repoAssessments: [],
-      mode: options.mode,
       notes: input.notes ? [...input.notes] : [],
     };
 
@@ -561,7 +546,6 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
       dossierId: dossier.id,
       createdAt: input.createdAt || new Date().toISOString(),
       sessionId: dossier.sessionId,
-      mode: dossier.mode,
       groupResults: input.groupResults.map(asResearchRunGroupResult),
       crossGroupSummary: input.crossGroupSummary,
       notes: input.notes ? [...input.notes] : [],

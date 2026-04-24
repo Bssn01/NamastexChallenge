@@ -1,9 +1,9 @@
-export type RuntimeMode = 'mock' | 'dev' | 'real';
+import type { LlmConfig } from './adapters/llm/provider.js';
 
 export type ResearchProvider =
   | 'arxiv'
   | 'hackernews'
-  | 'grok'
+  | 'llm'
   | 'github'
   | 'repomix'
   | 'x'
@@ -52,7 +52,6 @@ export interface ResearchRun {
   dossierId: string;
   createdAt: string;
   sessionId: string;
-  mode: RuntimeMode;
   groupResults: ResearchRunGroupResult[];
   crossGroupSummary: string;
   notes: string[];
@@ -94,7 +93,6 @@ export interface IdeaDossier {
   topicGroups: TopicGroup[];
   researchRuns: ResearchRun[];
   repoAssessments: RepoAssessment[];
-  mode: RuntimeMode;
   notes: string[];
 }
 
@@ -105,7 +103,6 @@ export interface ResearchRecord {
   summary: string;
   sources: ResearchSource[];
   sessionId: string;
-  mode: RuntimeMode;
   notes: string[];
   dossierId?: string;
   researchRunId?: string;
@@ -118,27 +115,18 @@ export interface WhatsAppReply {
 }
 
 export interface AppConfig {
-  mode: RuntimeMode;
   repoRoot: string;
   repoCacheRoot: string;
   storePath: string;
   storeOutboxPath: string;
-  mockFixturesDir: string;
   sessionId: string;
-  arxivFixturePath: string;
-  hackerNewsFixturePath: string;
-  grokFixturePath: string;
-  githubFixturePath: string;
-  repomixFixturePath: string;
   hackerNewsApiBase: string;
   hackerNewsUserAgent: string;
-  githubOwner?: string;
-  githubRepo?: string;
+  defaultGithubOwner?: string;
+  defaultGithubRepo?: string;
   githubToken?: string;
   githubApiBase: string;
-  openRouterApiKey?: string;
-  xaiApiKey?: string;
-  grokModel: string;
+  llm: LlmConfig;
   xSearchModel: string;
   xSearchLimit: number;
   fieldTheoryBin?: string;
@@ -146,9 +134,4 @@ export interface AppConfig {
   genieBrainBin: string;
   genieBrainIngestDir: string;
   genieBrainSearchLimit: number;
-  moonshotApiKey?: string;
-  kimiApiBase: string;
-  kimiModel: string;
-  kimiCliBin: string;
-  kimiMode: 'api' | 'cli';
 }

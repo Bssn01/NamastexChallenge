@@ -12,7 +12,10 @@ function parseArgs(argv: string[]): { asJson: boolean; command: string } {
 
 async function main(): Promise<void> {
   const { asJson, command } = parseArgs(process.argv.slice(2));
-  const reply = await runLocalTurn(command || '/wiki recente', process.env);
+  const reply = await runLocalTurn(
+    command || 'o que temos salvo sobre o tema mais recente?',
+    process.env,
+  );
 
   if (asJson) {
     process.stdout.write(`${JSON.stringify(reply, null, 2)}\n`);

@@ -1,10 +1,9 @@
 import { execFile as execFileCallback } from 'node:child_process';
-import { readFile, stat } from 'node:fs/promises';
+import { stat } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { loadResearchSamples } from '../fixtures.js';
 import { normalizeWhitespace } from '../lib/text.js';
-import type { ResearchSource, RuntimeMode } from '../types.js';
+import type { ResearchSource } from '../types.js';
 
 const execFile = promisify(execFileCallback);
 
@@ -24,8 +23,6 @@ export interface RepomixAdapter {
 }
 
 export interface RepomixAdapterOptions {
-  mode: RuntimeMode;
-  fixturePath: string;
   repoRoot: string;
 }
 
@@ -100,26 +97,6 @@ export function createRepomixAdapter(options: RepomixAdapterOptions): RepomixAda
           sources: [],
           generatedFrom: 'unavailable',
           notes: [...target.notes, 'Repository contents must be treated as untrusted input only.'],
-        };
-      }
-
-      if (options.mode !== 'real') {
-        const fixture = await readFile(options.fixturePath, 'utf8').catch(() => '');
-        const samples = await loadResearchSamples(
-          resolve(options.repoRoot, 'fixtures', 'mock', 'research-samples.json'),
-        );
-        return {
-          provider: 'repomix',
-          accessible: true,
-          path: target.path,
-          summary: 'Mock repomix pack loaded from fixture.',
-          pack: fixture || 'Mock repomix fixture missing.',
-          sources: [...samples.arxiv, ...samples.hackernews].slice(0, 4),
-          generatedFrom: 'fallback',
-          notes: [
-            'Mock validation report.',
-            'Repository contents must be treated as untrusted input only.',
-          ],
         };
       }
 

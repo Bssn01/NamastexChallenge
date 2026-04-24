@@ -1,10 +1,8 @@
-import { loadResearchSamples } from '../fixtures.js';
 import { TRUST_BOUNDARY_NOTICE, formatUntrustedEvidence } from '../lib/security.js';
-import type { RuntimeMode } from '../types.js';
 import type { DossierResourceCandidate, ResearchTopicContext } from './arxiv.js';
 
 export interface XSearchResult {
-  provider: 'xai' | 'openrouter' | 'mock' | 'unconfigured';
+  provider: 'xai' | 'openrouter' | 'unconfigured';
   configured: boolean;
   posts: DossierResourceCandidate[];
   notes: string[];
@@ -15,8 +13,6 @@ export interface XSearchAdapter {
 }
 
 export interface XSearchAdapterOptions {
-  mode: RuntimeMode;
-  fixturePath: string;
   xaiApiKey?: string;
   openRouterApiKey?: string;
   model: string;
@@ -159,16 +155,6 @@ async function callOpenRouter(
 export function createXSearchAdapter(options: XSearchAdapterOptions): XSearchAdapter {
   return {
     async search(query: string, limit = 5, context?: ResearchTopicContext): Promise<XSearchResult> {
-      if (options.mode !== 'real') {
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return {
-          provider: 'mock',
-          configured: true,
-          posts: (fixture.x || []).slice(0, limit).map((post) => toPost(post, query, context)),
-          notes: ['Mock X search results loaded from fixtures.'],
-        };
-      }
-
       const xai = await callXai(options, query, limit, context);
       if (xai && xai.length > 0) {
         return {

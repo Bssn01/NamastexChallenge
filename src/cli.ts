@@ -1,11 +1,11 @@
 import { createRuntime } from './runtime.js';
-import { routeWhatsappCommand } from './workflow.js';
+import { routeWhatsappMessage } from './workflow.js';
 
 async function main(): Promise<void> {
   const input = process.argv.slice(2).join(' ').trim();
-  const command = input || '/pesquisar agente de whatsapp com swarm';
+  const message = input || 'pesquisa essa ideia de um agente de WhatsApp com swarm';
   const runtime = createRuntime(process.env);
-  const reply = await routeWhatsappCommand(command, runtime);
+  const reply = await routeWhatsappMessage(message, runtime);
   for (const chunk of reply.chunks) {
     process.stdout.write(`${chunk}\n\n`);
   }

@@ -112,17 +112,6 @@ function parseGitHubTarget(input: string): NormalizedSlug | null {
   return null;
 }
 
-async function localRemoteSlug(repoRoot: string): Promise<NormalizedSlug | null> {
-  try {
-    const result = await execFile('git', ['remote', 'get-url', 'origin'], { cwd: repoRoot });
-    const normalized = parseGitHubTarget(result.stdout.trim());
-    if (!normalized) return null;
-    return { ...normalized, normalizedFrom: 'remote' };
-  } catch {
-    return null;
-  }
-}
-
 function cacheRootFromOptions(options: GitHubTargetResolverOptions): string {
   return options.repoCacheRoot
     ? resolve(options.repoCacheRoot)
@@ -260,13 +249,6 @@ export async function resolveGitHubTarget(
     ]);
   }
 
-  const remote = await localRemoteSlug(options.repoRoot);
-  if (remote) {
-    return createResolution(remote, input, options.githubApiBase, [
-      'Target derived from the local git origin remote.',
-    ]);
-  }
-
   if (options.defaultOwner && options.defaultRepo) {
     return createResolution(
       {
@@ -284,7 +266,7 @@ export async function resolveGitHubTarget(
     { owner: 'unknown', repo: 'unknown', normalizedFrom: 'defaults' },
     input,
     options.githubApiBase,
-    ['No explicit target, local remote, or configured defaults were available.'],
+    ['No explicit target or configured defaults were available.'],
   );
 }
 

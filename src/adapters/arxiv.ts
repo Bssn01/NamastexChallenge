@@ -1,6 +1,5 @@
-import { loadResearchSamples } from '../fixtures.js';
 import { normalizeWhitespace } from '../lib/text.js';
-import type { ResearchSource, RuntimeMode } from '../types.js';
+import type { ResearchSource } from '../types.js';
 
 export interface ResearchTopicContext {
   topicGroupId?: string;
@@ -24,11 +23,6 @@ export interface ArxivAdapter {
     limit?: number,
     context?: ResearchTopicContext,
   ): Promise<DossierResourceCandidate[]>;
-}
-
-export interface ArxivAdapterOptions {
-  mode: RuntimeMode;
-  fixturePath: string;
 }
 
 function scoreAgainstQuery(source: DossierResourceCandidate, query: string): number {
@@ -101,47 +95,24 @@ async function parseArxivFeed(feed: string): Promise<DossierResourceCandidate[]>
   });
 }
 
-export function createArxivAdapter(options: ArxivAdapterOptions): ArxivAdapter {
+export function createArxivAdapter(): ArxivAdapter {
   return {
     async search(
       query: string,
       limit = 5,
       context?: ResearchTopicContext,
     ): Promise<DossierResourceCandidate[]> {
-      if (options.mode !== 'real') {
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.arxiv, query)
-          .slice(0, limit)
-          .map((source) => annotateResource(source, query, context));
-      }
-
-      try {
-        const url = new URL('https://export.arxiv.org/api/query');
-        url.searchParams.set('search_query', `all:${query}`);
-        url.searchParams.set('start', '0');
-        url.searchParams.set('max_results', String(limit));
-        url.searchParams.set('sortBy', 'relevance');
-        const response = await fetch(url);
-        if (!response.ok) throw new Error(`arXiv request failed: ${response.status}`);
-        const feed = await response.text();
-        return (await parseArxivFeed(feed))
-          .slice(0, limit)
-          .map((source) => annotateResource(source, query, context));
-      } catch {
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.arxiv, query)
-          .slice(0, limit)
-          .map((source) =>
-            annotateResource(
-              {
-                ...source,
-                tags: [...(source.tags || []), 'fixture-fallback'],
-              },
-              query,
-              context,
-            ),
-          );
-      }
+      const url = new URL('https://export.arxiv.org/api/query');
+      url.searchParams.set('search_query', `all:${query}`);
+      url.searchParams.set('start', '0');
+      url.searchParams.set('max_results', String(limit));
+      url.searchParams.set('sortBy', 'relevance');
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`arXiv request failed: ${response.status}`);
+      const feed = await response.text();
+      return (await parseArxivFeed(feed))
+        .slice(0, limit)
+        .map((source) => annotateResource(source, query, context));
     },
   };
 }

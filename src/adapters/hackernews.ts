@@ -1,6 +1,4 @@
-import { loadResearchSamples } from '../fixtures.js';
 import { normalizeWhitespace } from '../lib/text.js';
-import type { ResearchSource, RuntimeMode } from '../types.js';
 import type { DossierResourceCandidate, ResearchTopicContext } from './arxiv.js';
 
 export interface HackerNewsAdapter {
@@ -12,8 +10,6 @@ export interface HackerNewsAdapter {
 }
 
 export interface HackerNewsAdapterOptions {
-  mode: RuntimeMode;
-  fixturePath: string;
   apiBase?: string;
   userAgent?: string;
 }
@@ -97,43 +93,24 @@ export function createHackerNewsAdapter(options: HackerNewsAdapterOptions): Hack
       limit = 5,
       context?: ResearchTopicContext,
     ): Promise<DossierResourceCandidate[]> {
-      try {
-        const url = new URL(`${apiBase}/search`);
-        url.searchParams.set('query', query);
-        url.searchParams.set('tags', 'story');
-        url.searchParams.set('hitsPerPage', String(limit));
+      const url = new URL(`${apiBase}/search`);
+      url.searchParams.set('query', query);
+      url.searchParams.set('tags', 'story');
+      url.searchParams.set('hitsPerPage', String(limit));
 
-        const response = await fetch(url, {
-          headers: { 'User-Agent': userAgent },
-        });
+      const response = await fetch(url, {
+        headers: { 'User-Agent': userAgent },
+      });
 
-        if (!response.ok) {
-          throw new Error(`Hacker News request failed: ${response.status}`);
-        }
-
-        const payload = (await response.json()) as { hits?: AlgoliaHit[] };
-        const hits = payload.hits || [];
-        return hits
-          .slice(0, limit)
-          .map((hit, index) => annotateResource(toSource(hit, index), query, context));
-      } catch (error) {
-        console.warn(
-          `[hackernews] fallback to fixture: ${error instanceof Error ? error.message : String(error)}`,
-        );
-        const fixture = await loadResearchSamples(options.fixturePath);
-        return sortByQueryMatch(fixture.hackernews, query)
-          .slice(0, limit)
-          .map((source) =>
-            annotateResource(
-              {
-                ...source,
-                tags: [...(source.tags || []), 'fixture-fallback'],
-              },
-              query,
-              context,
-            ),
-          );
+      if (!response.ok) {
+        throw new Error(`Hacker News request failed: ${response.status}`);
       }
+
+      const payload = (await response.json()) as { hits?: AlgoliaHit[] };
+      const hits = payload.hits || [];
+      return hits
+        .slice(0, limit)
+        .map((hit, index) => annotateResource(toSource(hit, index), query, context));
     },
   };
 }

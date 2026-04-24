@@ -11,7 +11,7 @@ import type { GrokAdapter, GrokSummary } from './adapters/grok.js';
 import type { HackerNewsAdapter } from './adapters/hackernews.js';
 import type { RepomixAdapter, RepomixReport } from './adapters/repomix.js';
 import type { XSearchAdapter } from './adapters/x.js';
-import { isSupportedCommand, parseCommand } from './lib/commands.js';
+import { resolveIntent } from './lib/intents.js';
 import { chunkText, normalizeWhitespace } from './lib/text.js';
 import type { GenieResearchStore } from './store/genie-research-store.js';
 import type {
@@ -54,6 +54,84 @@ interface ParsedPesquisaInput {
 interface RepoRequest {
   target?: string;
   dossierId?: string;
+  dossierHint?: string;
+}
+
+const STOPWORDS = new Set([
+  'a',
+  'as',
+  'de',
+  'da',
+  'do',
+  'das',
+  'dos',
+  'e',
+  'em',
+  'essa',
+  'esse',
+  'esta',
+  'este',
+  'isso',
+  'isto',
+  'o',
+  'os',
+  'uma',
+  'um',
+  'umas',
+  'uns',
+  'para',
+  'por',
+  'que',
+  'quero',
+  'me',
+  'nos',
+  'nossa',
+  'nosso',
+  'sobre',
+  'sobre',
+  'pra',
+  'pro',
+  'com',
+  'sem',
+  'temos',
+  'salvo',
+  'salva',
+  'salvos',
+  'salvas',
+  'mostra',
+  'resuma',
+  'resume',
+  'analisa',
+  'analise',
+  'pesquisa',
+  'pesquisar',
+  'procura',
+  'procurar',
+  'valida',
+  'validar',
+  'investiga',
+  'investigar',
+  'estuda',
+  'estudar',
+  'revisa',
+  'revisar',
+]);
+
+function stripAccents(value: string): string {
+  return value.normalize('NFD').replace(/\p{Diacritic}/gu, '');
+}
+
+function tokenizeHint(value: string): string[] {
+  return stripAccents(normalizeWhitespace(value).toLowerCase())
+    .split(/[^a-z0-9]+/)
+    .filter((token) => token.length > 2 && !STOPWORDS.has(token));
+}
+
+function scoreHintAgainstText(hint: string, text: string): number {
+  const tokens = tokenizeHint(hint);
+  if (tokens.length === 0) return 0;
+  const haystack = stripAccents(normalizeWhitespace(text).toLowerCase());
+  return tokens.reduce((score, token) => score + (haystack.includes(token) ? 1 : 0), 0);
 }
 
 function buildTopicGroup(label: string, kind: TopicGroup['kind'], topics: string[]): TopicGroup {
@@ -133,9 +211,13 @@ function parseRepoRequest(payload: string): RepoRequest {
   const parts = payload.split(/\s+/).filter(Boolean);
   const dossierToken = parts.find((part) => part.startsWith('idea:'));
   const target = parts.find((part) => !part.startsWith('idea:'));
+  const dossierHint = normalizeWhitespace(
+    parts.filter((part) => part !== target && !part.startsWith('idea:')).join(' '),
+  );
   return {
     target,
     dossierId: dossierToken ? dossierToken.slice('idea:'.length) : undefined,
+    dossierHint,
   };
 }
 
@@ -246,7 +328,7 @@ function formatWikiReply(dossier: IdeaDossier): string {
     `Resumo: ${latestRun?.crossGroupSummary || 'Ainda sem pesquisa consolidada.'}`,
     ...(highlights.length > 0 ? ['', 'Destaques:', ...highlights] : []),
     '',
-    `Próximo passo sugerido: /fontes ${dossier.mainTopic} para ver as fontes, ou /repo <owner/repo> para testar um repositório.`,
+    'Próximo passo sugerido: peça para eu mostrar as fontes deste dossiê ou envie um GitHub URL/owner/repo para avaliar um repositório.',
   ].join('\n');
 }
 
@@ -371,6 +453,8 @@ function formatRepoReply(
     '',
     `Fit score: ${assessment.fitScore ?? 'n/a'}/100`,
     '',
+    `Resumo: ${assessment.fitSummary}`,
+    '',
     'Forças:',
     ...(assessment.strengths.length > 0
       ? assessment.strengths.map((item) => `- ${item}`)
@@ -390,6 +474,106 @@ function formatRepoReply(
   ].join('\n');
 }
 
+function summarizeDossierForRepoComparison(dossier: IdeaDossier): string {
+  const latestRun = dossier.researchRuns[0];
+  const topicGroups = dossier.topicGroups
+    .map((group) => `- ${group.label}: ${group.topics.join(', ')}`)
+    .join('\n');
+  const highlights = latestRun
+    ? latestRun.groupResults
+        .map((group) => `- ${group.topicGroupLabel}: ${group.summary}`)
+        .slice(0, 6)
+        .join('\n')
+    : '- Ainda não há rodada de pesquisa consolidada.';
+
+  return [
+    `Dossier ID: ${dossier.id}`,
+    `Ideia: ${dossier.rawIdeaText}`,
+    `Tema principal: ${dossier.mainTopic}`,
+    '',
+    'Grupos:',
+    topicGroups || '- sem grupos',
+    '',
+    'Última síntese:',
+    latestRun?.crossGroupSummary || 'Sem síntese consolidada.',
+    '',
+    'Sinais recentes:',
+    highlights,
+  ].join('\n');
+}
+
+function fitScoreFromVerdict(
+  verdict: 'ganho-real' | 'complexidade-sem-retorno' | 'incerto',
+): number {
+  if (verdict === 'ganho-real') return 78;
+  if (verdict === 'complexidade-sem-retorno') return 32;
+  return 55;
+}
+
+async function compareWikiIdeaToRepo(
+  dossier: IdeaDossier,
+  repoTarget: string,
+  services: AppServices,
+): Promise<{
+  assessment: RepoAssessment;
+  github: GitHubLabReport;
+  repomix: RepomixReport;
+}> {
+  const materialized = await services.github.materializeRepository(repoTarget);
+  const github = await services.github.validateRepository(repoTarget);
+  github.localPath = materialized.localPath;
+  const repomix = await services.repomix.validateRepository(materialized.localPath);
+  const comparison = await services.grok.compareIdeaToRepo({
+    dossierSummary: summarizeDossierForRepoComparison(dossier),
+    repoPack: repomix.pack,
+    repoLabel: github.canonicalSlug,
+    ideaLabel: dossier.mainTopic,
+  });
+
+  const strengths: string[] = [
+    `Veredito do modelo: ${comparison.verdict}.`,
+    ...comparison.concreteFiles.map((file) => `Ponto concreto de aplicação: ${file}.`),
+  ];
+  const risks =
+    comparison.risks.length > 0 ? comparison.risks : ['Sem riscos adicionais especificados.'];
+  const recommendedNextSteps = comparison.betterTopic
+    ? [`Alternativa sugerida do wiki: ${comparison.betterTopic}`]
+    : ['Revise os módulos citados antes de implementar qualquer camada nova.'];
+
+  const assessment = await services.store.saveRepoAssessment({
+    dossierId: dossier.id,
+    targetRepo: {
+      canonicalSlug: github.canonicalSlug,
+      owner: github.owner,
+      repo: github.repo,
+      sourceUrl: github.sourceUrl,
+      localPath: github.localPath || materialized.localPath,
+      defaultBranch: github.defaultBranch,
+      notes: [...github.notes, ...repomix.notes],
+    },
+    githubReport: github as unknown as Record<string, unknown>,
+    repomixReport: repomix as unknown as Record<string, unknown>,
+    fitSummary: comparison.summary,
+    fitScore: fitScoreFromVerdict(comparison.verdict),
+    strengths,
+    gaps:
+      repomix.generatedFrom === 'repomix'
+        ? []
+        : ['Repomix não executou do caminho ideal; a análise usou fallback local.'],
+    risks,
+    recommendedNextSteps,
+    notes: [
+      ...github.notes,
+      ...repomix.notes,
+      `Compared against dossier ${dossier.id}.`,
+      `provider:${comparison.provider}`,
+      `model:${comparison.model}`,
+    ],
+  });
+
+  return { assessment, github, repomix };
+}
+
 async function selectDossier(
   services: AppServices,
   dossierId?: string,
@@ -402,14 +586,16 @@ async function selectDossier(
   const dossiers = await services.store.listRecentDossiers(10);
   if (!topicHint) return dossiers[0];
 
-  const normalizedHint = topicHint.toLowerCase();
-  return (
-    dossiers.find(
-      (dossier) =>
-        dossier.mainTopic.toLowerCase().includes(normalizedHint) ||
-        dossier.rawIdeaText.toLowerCase().includes(normalizedHint),
-    ) || dossiers[0]
-  );
+  const scored = dossiers
+    .map((dossier) => ({
+      dossier,
+      score:
+        scoreHintAgainstText(topicHint, dossier.mainTopic) +
+        scoreHintAgainstText(topicHint, dossier.rawIdeaText),
+    }))
+    .sort((left, right) => right.score - left.score);
+
+  return scored[0]?.score ? scored[0].dossier : dossiers[0];
 }
 
 async function gatherGroupResearch(
@@ -456,13 +642,7 @@ async function gatherGroupResearch(
     })),
   });
 
-  const diagnostics = [
-    ...xResult.notes,
-    ...fieldTheoryResult.notes,
-    ...(services.config.mode === 'real' && groupSummary.provider === 'mock'
-      ? ['Grok caiu para síntese mock por falta/falha de chave']
-      : []),
-  ];
+  const diagnostics = [...xResult.notes, ...fieldTheoryResult.notes];
 
   return {
     result: {
@@ -485,7 +665,7 @@ export async function runPesquisaWorkflow(
     rawIdeaText: parsed.rawIdeaText,
     mainTopic: parsed.mainTopic,
     topicGroups: parsed.topicGroups,
-    notes: ['Created from /pesquisar.'],
+    notes: ['Created from a research turn.'],
   });
 
   const groupData = await Promise.all(
@@ -527,11 +707,9 @@ export async function runPesquisaWorkflow(
   const brainNote =
     brainIngest.state === 'ready' && brainIngest.ingestPath
       ? 'Brain: dossiê ingerido'
-      : brainIngest.state === 'ready'
-        ? 'Brain: modo mock (ingest desativado)'
-        : brainIngest.state === 'missing'
-          ? 'Brain: não instalado'
-          : 'Brain: não configurado';
+      : brainIngest.state === 'missing'
+        ? 'Brain: não instalado'
+        : 'Brain: não configurado';
   diagnostics.push(brainNote);
 
   return {
@@ -562,7 +740,7 @@ export async function runWikiWorkflow(
 
   const baseText = dossier
     ? formatWikiReply(dossier)
-    : 'Wiki: recente\n\nAinda não existe base local para esse tópico. Rode /pesquisar primeiro.';
+    : 'Wiki: recente\n\nAinda não existe base local para esse tópico. Faça uma pesquisa primeiro.';
 
   const brainSection =
     brainResult.sources.length > 0
@@ -605,40 +783,32 @@ export async function runRepoWorkflow(
   services: AppServices,
 ): Promise<WorkflowResult> {
   const request = parseRepoRequest(payload || '');
-  const dossier = await selectDossier(services, request.dossierId);
+  const dossier = await selectDossier(services, request.dossierId, request.dossierHint);
   if (!dossier) {
     return {
       chunks: [
-        'Repo:\n\nNenhum dossiê disponível. Rode /pesquisar antes de avaliar um repositório.',
+        'Repo:\n\nNenhum dossiê disponível. Faça uma pesquisa antes de avaliar um repositório.',
       ],
       metadata: {},
     };
   }
 
-  const target =
-    request.target ||
-    `${services.config.githubOwner || 'unknown'}/${services.config.githubRepo || 'unknown'}`;
-  const materialized = await services.github.materializeRepository(target);
-  const github = await services.github.validateRepository(target);
-  github.localPath = materialized.localPath;
-  const repomix = await services.repomix.validateRepository(materialized.localPath);
+  const defaultTarget =
+    services.config.defaultGithubOwner && services.config.defaultGithubRepo
+      ? `${services.config.defaultGithubOwner}/${services.config.defaultGithubRepo}`
+      : undefined;
+  const target = request.target || defaultTarget;
 
-  const repoSources = buildRepoSources(dossier, github, repomix);
-  const repoSummary = await services.grok.synthesize(dossier.rawIdeaText, repoSources, {
-    rawIdeaText: dossier.rawIdeaText,
-    mainTopic: dossier.mainTopic,
-    topicGroups: dossier.topicGroups.map((group) => ({
-      id: group.id,
-      label: group.label,
-      topics: group.topics,
-    })),
-  });
+  if (!target) {
+    return {
+      chunks: [
+        'Repo:\n\nMe envie um GitHub URL ou `owner/repo` para eu comparar com o que está salvo no wiki.',
+      ],
+      metadata: { dossierId: dossier.id },
+    };
+  }
 
-  const assessmentInput = deriveRepoAssessment(dossier, github, repomix, repoSummary);
-  const assessment = await services.store.saveRepoAssessment({
-    dossierId: dossier.id,
-    ...assessmentInput,
-  });
+  const { assessment, github, repomix } = await compareWikiIdeaToRepo(dossier, target, services);
 
   return {
     chunks: chunkText(formatRepoReply(assessment, github, repomix)),
@@ -654,8 +824,9 @@ export async function runBookmarksWorkflow(
   query: string,
   services: AppServices,
 ): Promise<WorkflowResult> {
-  const result = await services.fieldtheory.search(normalizeWhitespace(query), 5, {
-    mainTopic: normalizeWhitespace(query),
+  const searchQuery = normalizeWhitespace(query) || 'recente';
+  const result = await services.fieldtheory.search(searchQuery, 5, {
+    mainTopic: searchQuery,
     rawIdeaText: query,
   });
 
@@ -696,44 +867,55 @@ export async function runResetWorkflow(services: AppServices): Promise<WorkflowR
   };
 }
 
-export async function runUnknownWorkflow(command: string): Promise<WorkflowResult> {
+export async function runClarificationWorkflow(question: string): Promise<WorkflowResult> {
   return {
-    chunks: [
-      [
-        'Não reconheci esse comando.',
-        '',
-        'Tente: /pesquisar, /wiki, /fontes, /repo, /bookmarks ou /reset.',
-      ].join('\n'),
-    ],
+    chunks: [question],
     metadata: {},
   };
 }
 
-export async function routeWhatsappCommand(
+export async function routeWhatsappMessage(
   text: string,
   services: AppServices,
 ): Promise<WhatsAppReply> {
-  const { command, payload } = parseCommand(text);
+  const defaultRepoSlug =
+    services.config.defaultGithubOwner && services.config.defaultGithubRepo
+      ? `${services.config.defaultGithubOwner}/${services.config.defaultGithubRepo}`
+      : undefined;
+  const intent = resolveIntent(text, { defaultRepoSlug });
 
-  if (!isSupportedCommand(command)) {
-    const result = await runUnknownWorkflow(command || normalizeWhitespace(text));
+  if (intent.kind === 'clarify') {
     return {
-      command: command || normalizeWhitespace(text),
-      chunks: result.chunks,
-      metadata: result.metadata,
+      command: 'clarify',
+      chunks: [intent.clarification || 'Preciso de mais contexto para ajudar.'],
+      metadata: {
+        intent: 'clarify',
+        source: intent.source,
+      },
     };
   }
 
-  const handlers: Record<string, (input: string, runtime: AppServices) => Promise<WorkflowResult>> =
-    {
-      '/pesquisar': runPesquisaWorkflow,
-      '/wiki': runWikiWorkflow,
-      '/fontes': runSourcesWorkflow,
-      '/repo': runRepoWorkflow,
-      '/bookmarks': runBookmarksWorkflow,
-      '/reset': async (_input, runtime) => runResetWorkflow(runtime),
-    };
+  const handlers: Record<
+    Exclude<typeof intent.kind, 'clarify'>,
+    (input: string, runtime: AppServices) => Promise<WorkflowResult>
+  > = {
+    research: runPesquisaWorkflow,
+    wiki: runWikiWorkflow,
+    sources: runSourcesWorkflow,
+    repo: runRepoWorkflow,
+    bookmarks: runBookmarksWorkflow,
+    reset: async (_input, runtime) => runResetWorkflow(runtime),
+  };
 
-  const result = await handlers[command](payload, services);
-  return { command, chunks: result.chunks, metadata: result.metadata };
+  const result = await handlers[intent.kind](intent.payload, services);
+  return {
+    command: intent.kind,
+    chunks: result.chunks,
+    metadata: {
+      ...result.metadata,
+      intent: intent.kind,
+      source: intent.source,
+      legacyCommand: intent.legacyCommand,
+    },
+  };
 }

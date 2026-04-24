@@ -3,7 +3,6 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { normalizeWhitespace } from '../lib/text.js';
-import type { RuntimeMode } from '../types.js';
 import type { DossierResourceCandidate, ResearchTopicContext } from './arxiv.js';
 
 const execFile = promisify(execFileCallback);
@@ -45,7 +44,6 @@ export interface GenieBrainAdapter {
 }
 
 export interface GenieBrainAdapterOptions {
-  mode: RuntimeMode;
   bin?: string;
   ingestDir: string;
 }
@@ -147,8 +145,6 @@ export function createGenieBrainAdapter(
   const runner = deps.execFile || execFile;
 
   async function probe(): Promise<GenieBrainState> {
-    if (options.mode !== 'real') return 'ready';
-
     try {
       const { stdout } = await runner(bin, ['brain', 'status', '--no-interactive', '--no-tui']);
       if (isUnconfiguredOutput(stdout)) return 'unconfigured';
@@ -169,13 +165,6 @@ export function createGenieBrainAdapter(
     probe,
 
     async ingest(input: GenieBrainIngestInput): Promise<GenieBrainIngestResult> {
-      if (options.mode !== 'real') {
-        return {
-          state: 'ready',
-          notes: ['Brain ingest skipped in non-real mode.'],
-        };
-      }
-
       const state = await probe();
       if (state !== 'ready') {
         return {
@@ -222,14 +211,6 @@ export function createGenieBrainAdapter(
       limit = 5,
       context?: ResearchTopicContext,
     ): Promise<GenieBrainSearchResult> {
-      if (options.mode !== 'real') {
-        return {
-          state: 'ready',
-          sources: [],
-          notes: ['Brain search skipped in non-real mode.'],
-        };
-      }
-
       const state = await probe();
       if (state !== 'ready') {
         return {

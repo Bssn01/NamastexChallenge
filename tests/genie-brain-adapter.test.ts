@@ -19,34 +19,9 @@ function makeExec(
   };
 }
 
-test('genie-brain adapter returns ready in mock mode and skips ingest', async () => {
-  const adapter = createGenieBrainAdapter({
-    mode: 'mock',
-    ingestDir: join(tmpdir(), 'brain-ingest-mock'),
-  });
-
-  const probe = await adapter.probe();
-  assert.equal(probe, 'ready');
-
-  const ingest = await adapter.ingest({
-    dossierId: 'mock-1',
-    mainTopic: 'topic',
-    rawIdeaText: 'idea',
-    crossGroupSummary: 'summary',
-    groupResults: [],
-  });
-  assert.equal(ingest.state, 'ready');
-  assert.match(ingest.notes[0] || '', /non-real/);
-
-  const search = await adapter.search('anything', 5);
-  assert.equal(search.state, 'ready');
-  assert.equal(search.sources.length, 0);
-});
-
 test('genie-brain adapter reports missing binary', async () => {
   const adapter = createGenieBrainAdapter(
     {
-      mode: 'real',
       bin: 'genie',
       ingestDir: join(tmpdir(), 'brain-ingest-missing'),
     },
@@ -73,7 +48,6 @@ test('genie-brain adapter reports missing binary', async () => {
 test('genie-brain adapter reports unconfigured when vault is missing', async () => {
   const adapter = createGenieBrainAdapter(
     {
-      mode: 'real',
       bin: 'genie',
       ingestDir: join(tmpdir(), 'brain-ingest-unconfigured'),
     },
@@ -94,7 +68,6 @@ test('genie-brain adapter writes markdown and calls ingest when ready', async ()
 
   const adapter = createGenieBrainAdapter(
     {
-      mode: 'real',
       bin: 'genie',
       ingestDir: dir,
     },
