@@ -23,6 +23,13 @@ interface InstallerState {
   values: Record<string, string>;
 }
 
+interface DetectedTools {
+  omni: boolean;
+  genie: boolean;
+  claude: boolean;
+  codex: boolean;
+}
+
 async function ensureAccessible(command: string): Promise<boolean> {
   return new Promise((resolvePromise) => {
     const child = spawn('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' });
@@ -146,15 +153,27 @@ function extractInstanceId(output: string): string | undefined {
   return match?.[1];
 }
 
-async function detectTools(repoRoot: string): Promise<{ omni: boolean; genie: boolean }> {
+async function detectTools(repoRoot: string): Promise<DetectedTools> {
   const s = spinner();
-  s.start('Checking Omni and Genie availability');
-  const [omni, genie] = await Promise.all([ensureAccessible('omni'), ensureAccessible('genie')]);
-  s.stop(`Omni ${omni ? 'found' : 'missing'}, Genie ${genie ? 'found' : 'missing'}`);
-  return { omni, genie };
+  s.start('Checking local CLI availability');
+  const [omni, genie, claude, codex] = await Promise.all([
+    ensureAccessible('omni'),
+    ensureAccessible('genie'),
+    ensureAccessible('claude'),
+    ensureAccessible('codex'),
+  ]);
+  s.stop(
+    [
+      `Omni ${omni ? 'found' : 'missing'}`,
+      `Genie ${genie ? 'found' : 'missing'}`,
+      `Claude CLI ${claude ? 'found' : 'missing'}`,
+      `Codex CLI ${codex ? 'found' : 'missing'}`,
+    ].join(', '),
+  );
+  return { omni, genie, claude, codex };
 }
 
-async function bootstrapIfNeeded(repoRoot: string, detected: { omni: boolean; genie: boolean }) {
+async function bootstrapIfNeeded(repoRoot: string, detected: DetectedTools) {
   if (detected.omni && detected.genie) return;
 
   const mode = await select({
@@ -184,23 +203,75 @@ async function bootstrapIfNeeded(repoRoot: string, detected: { omni: boolean; ge
   await runCommand('npm', ['run', 'deps:bootstrap'], { cwd: repoRoot });
 }
 
-async function configureSecrets(state: InstallerState) {
+async function configureClaudeAuth(state: InstallerState, detected: DetectedTools) {
+  const authMode = await select({
+    message: 'Claude authentication',
+    options: [
+      {
+        label: detected.claude
+          ? 'Use local Claude CLI login'
+          : 'Use local Claude CLI after I log in',
+        value: 'claude-cli',
+      },
+      { label: 'Use Anthropic API key', value: 'anthropic-api' },
+      { label: 'Skip Claude for now', value: 'skip' },
+    ],
+  });
+  if (isCancel(authMode)) process.exit(1);
+
+  if (authMode === 'claude-cli') {
+    state.values.NAMASTEX_LLM_PRIMARY = 'claude-cli';
+    state.values.ANTHROPIC_API_KEY ||= '';
+    state.values.CLAUDE_CODE_OAUTH_TOKEN ||= '';
+
+    if (!detected.claude) {
+      note(
+        [
+          'Install and authenticate Claude Code before starting the local host flow:',
+          '',
+          'npm install -g @anthropic-ai/claude-code',
+          'claude',
+          '',
+          'After the browser login finishes, run `npm run setup` again.',
+        ].join('\n'),
+        'Claude CLI login',
+      );
+    }
+    return;
+  }
+
+  if (authMode === 'anthropic-api') {
+    await maybePromptSecret(state, 'ANTHROPIC_API_KEY', 'Anthropic API key', true);
+    state.values.NAMASTEX_LLM_PRIMARY = 'anthropic:claude-opus-4-1';
+    return;
+  }
+
+  state.values.ANTHROPIC_API_KEY ||= '';
+  state.values.CLAUDE_CODE_OAUTH_TOKEN ||= '';
+}
+
+async function configureSecrets(state: InstallerState, detected: DetectedTools) {
   await maybePromptSecret(state, 'GITHUB_TOKEN', 'GitHub token', true);
-  await maybePromptSecret(state, 'ANTHROPIC_API_KEY', 'Anthropic API key');
+  await configureClaudeAuth(state, detected);
   await maybePromptSecret(state, 'OPENROUTER_API_KEY', 'OpenRouter API key');
   await maybePromptSecret(state, 'XAI_API_KEY', 'xAI API key');
   await maybePromptSecret(state, 'MOONSHOT_API_KEY', 'Moonshot API key');
 }
 
-async function chooseProviders(state: InstallerState) {
+async function chooseProviders(state: InstallerState, detected: DetectedTools) {
+  const configured = [
+    state.values.NAMASTEX_LLM_PRIMARY,
+    ...(state.values.NAMASTEX_LLM_FALLBACKS || '').split(',').filter(Boolean),
+  ].filter(Boolean);
+  const initialValues =
+    configured.length > 0
+      ? configured
+      : [detected.claude ? 'claude-cli' : undefined, detected.codex ? 'codex-cli' : undefined]
+          .filter((value): value is string => Boolean(value));
+
   const selected = await multiselect({
     message: 'Choose provider order',
-    initialValues: state.values.NAMASTEX_LLM_PRIMARY
-      ? [
-          state.values.NAMASTEX_LLM_PRIMARY,
-          ...(state.values.NAMASTEX_LLM_FALLBACKS || '').split(',').filter(Boolean),
-        ]
-      : ['claude-cli', 'codex-cli'],
+    initialValues: initialValues.length > 0 ? initialValues : ['claude-cli', 'codex-cli'],
     options: LLM_PROVIDER_CATALOG.map((entry) => ({
       label: entry.label,
       value: entry.value,
@@ -311,8 +382,8 @@ async function main() {
     values: await readEnvFile(envPath),
   };
 
-  await configureSecrets(state);
-  await chooseProviders(state);
+  await configureSecrets(state, detected);
+  await chooseProviders(state, detected);
   await writeEnvFile(envPath, state.values);
 
   await bootstrapAgent(repoRoot);

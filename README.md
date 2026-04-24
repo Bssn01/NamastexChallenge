@@ -123,11 +123,24 @@ npm install
 cp .env.example .env
 ```
 
-Configure `GITHUB_TOKEN` e pelo menos um provedor LLM. Depois rode:
+Configure `GITHUB_TOKEN` e pelo menos um provedor LLM. No modo local, o agente pode usar o
+`claude` já autenticado no computador do usuário; nesse caso deixe `ANTHROPIC_API_KEY` e
+`CLAUDE_CODE_OAUTH_TOKEN` vazios e use:
+
+```env
+NAMASTEX_LLM_PRIMARY=claude-cli
+NAMASTEX_LLM_FALLBACKS=codex-cli
+```
+
+Se o usuário ainda não estiver logado no Claude Code, rode `claude` uma vez no terminal e
+complete o login no navegador. Depois rode:
 
 ```bash
 npm run setup
 ```
+
+O setup interativo detecta `claude`, `codex`, `omni` e `genie`, pergunta pelos segredos
+necessários e cria/pareia a instância WhatsApp.
 
 Ou faça manualmente:
 
