@@ -25,8 +25,14 @@ test('claude-cli provider shells out with the rendered prompt', async () => {
   if (!call) throw new Error('Expected Claude CLI to be called.');
   const captured = call as { file: string; args: string[] };
   assert.equal(captured.file, 'claude');
+  assert.deepEqual(captured.args.slice(0, 3), [
+    '--dangerously-skip-permissions',
+    '--model',
+    'claude-sonnet-4-6',
+  ]);
   assert.match(captured.args.at(-1) || '', /USER:\nhello/);
   assert.equal(response.content, 'ok');
+  assert.equal(response.model, 'claude-sonnet-4-6');
 });
 
 test('codex-cli provider shells out with codex exec', async () => {

@@ -1,0 +1,24 @@
+FROM oven/bun:1
+
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends curl ca-certificates \
+  && rm -rf /var/lib/apt/lists/* \
+  && useradd -m -s /bin/bash omni
+
+RUN bun add -g @automagik/omni
+
+RUN chmod 755 /root \
+  && chmod -R a+rX /root/.bun \
+  && mkdir -p /home/omni/.omni \
+  && chown -R omni:omni /home/omni
+
+USER omni
+WORKDIR /home/omni
+
+ENV HOME=/home/omni
+ENV API_HOST=0.0.0.0
+ENV API_PORT=8882
+
+EXPOSE 8882
+
+CMD ["sh", "-lc", "rm -f /home/omni/.omni/data/pgserve/postmaster.pid && exec bun /root/.bun/install/global/node_modules/@automagik/omni/dist/server/index.js"]

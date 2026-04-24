@@ -1,144 +1,211 @@
-# NamastexChallenge
+# Namastex Research Agent
 
-WhatsApp research agent for the Namastex technical challenge.
+Agente conversacional para WhatsApp construído para o teste técnico da Namastex. O agente usa **Omni** como bridge WhatsApp/Baileys, **Genie** como orquestrador nativo e um workflow TypeScript com ferramentas reais para pesquisar, salvar e validar ideias de produto.
 
-The production path is:
+## O que o agente faz
 
-`WhatsApp -> Omni/Baileys -> Genie -> Claude/Codex/other configured provider -> npm run local:turn -- --json "<user message>" -> Omni reply -> WhatsApp`
+O domínio escolhido é pesquisa e validação prática de ideias. A conversa é natural-first: o usuário escreve como falaria no WhatsApp, sem precisar decorar comandos.
 
-## Quick Setup
+| Capacidade | Exemplo de mensagem |
+|---|---|
+| Pesquisa de mercado e tecnologia | `pesquisa essa ideia de agentes de WhatsApp para atendimento B2B` |
+| Wiki/memória do que já foi pesquisado | `o que temos salvo sobre agentes de WhatsApp?` |
+| Fontes e evidências | `mostra as fontes desse dossiê` |
+| Validação contra um repositório GitHub | `testa essa ideia no repo https://github.com/openai/codex` |
+| Busca em bookmarks locais, quando FieldTheory está configurado | `procura nos meus bookmarks sobre embeddings` |
+| Reset da sessão atual | `reseta essa conversa` |
 
-Install dependencies and run the guided installer first:
+As ferramentas reais usadas pelo agente incluem GitHub API, checkout/materialização de repositórios, Repomix, Hacker News, arXiv, X/Grok quando configurado, FieldTheory opcional e Genie Brain opcional.
 
-```bash
-npm install
-npm run setup
+## Arquitetura
+
+```text
+Usuário WhatsApp
+  -> Omni / Baileys
+  -> NATS turn-based via omni connect
+  -> Genie agent namastex-research
+  -> Claude Code
+  -> npm run local:turn -- --json "<mensagem>"
+  -> ferramentas externas + Postgres
+  -> Omni reply
+  -> WhatsApp
 ```
 
-`npm run setup` can:
+No Docker, o stack é:
 
-- detect whether `omni` and `genie` are available
-- bootstrap local Omni/Genie worktrees when needed
-- capture secrets without echoing them back
-- write `.env` safely
-- choose the primary LLM provider plus fallbacks
-- run `genie setup --quick`, `genie init agent namastex-research`, and `genie dir sync`
-- start Omni and Genie
-- create the WhatsApp instance, show the QR, and run `omni connect`
+```text
+docker compose up -d --build
+  |
+  |-- postgres  Estado de Omni, Genie e memória multiusuário do agente
+  |-- nats      Barramento turn-based usado por Omni/Genie
+  |-- omni      Bridge WhatsApp/Baileys e API :8882
+  `-- genie     Orquestrador, Claude Code e workflow local do agente
+```
 
-## Manual Setup (Advanced)
+### Decisões principais
 
-1. Copy the environment template and fill at least `GITHUB_TOKEN` plus one usable LLM path.
+- **Genie continua sendo o cérebro**: o agente registrado no Genie recebe cada turno do Omni e delega para o workflow determinístico local.
+- **Omni é a ponte oficial de canal**: WhatsApp entra por Baileys e é roteado para o Genie via `omni connect` com provider `nats-genie`.
+- **Postgres isola múltiplos usuários**: cada conversa usa a chave `OMNI_INSTANCE + OMNI_CHAT`. Dossiês, fontes, avaliações de repo e reset ficam isolados por chat.
+- **JSON é apenas fallback local**: fora do Docker, o store em arquivo continua disponível para desenvolvimento, também filtrado por conversa.
+- **Sem runtime mock/demo**: testes usam fakes herméticos, mas o caminho operacional é real.
+- **Conteúdo externo é não confiável**: repositórios, tweets, artigos, READMEs e prompts analisados entram apenas como dados.
+
+## Setup recomendado com Docker
+
+### 1. Configurar ambiente
 
 ```bash
 cp .env.example .env
 ```
 
-2. Bootstrap local Omni/Genie sources if they are not already installed on the machine.
+Preencha no mínimo:
 
-```bash
-GENIE_REPO_URL=https://github.com/automagik-dev/genie.git \
-OMNI_REPO_URL=https://github.com/automagik-dev/omni.git \
-npm run deps:bootstrap
+```env
+GITHUB_TOKEN=ghp_...
+NAMASTEX_LLM_PRIMARY=claude-cli
+NAMASTEX_LLM_FALLBACKS=codex-cli,openrouter:moonshotai/kimi-k2
+NAMASTEX_CLAUDE_CODE_MODEL=claude-sonnet-4-6
 ```
 
-3. Register the agent with Genie.
+Para rodar headless em container, use uma das opções:
+
+```env
+CLAUDE_CODE_OAUTH_TOKEN=...
+```
+
+ou:
+
+```env
+ANTHROPIC_API_KEY=sk-ant-...
+```
+
+Opcionalmente restrinja quem pode falar com o número:
+
+```env
+OMNI_ACCESS_MODE=allowlist
+OMNI_ALLOW_PHONES=+5511999999999,+5511888888888
+```
+
+### 2. Subir o stack
+
+```bash
+docker compose up -d --build
+```
+
+Primeira execução costuma levar alguns minutos, porque instala Genie/Omni no build e inicializa Postgres/NATS.
+
+### 3. Parear WhatsApp
+
+```bash
+docker compose logs -f genie
+docker compose exec -u appuser genie omni instances qr $(docker compose exec -u appuser genie omni instances list --json | jq -r '.[0].id') --watch
+```
+
+No celular: WhatsApp -> Aparelhos conectados -> Conectar aparelho -> escanear QR.
+
+### 4. Acompanhar logs
+
+```bash
+docker compose logs -f omni genie
+```
+
+Quando o bootstrap terminar, o log do Genie deve mostrar:
+
+```text
+=== Namastex bootstrap OK ===
+```
+
+## Setup local avançado
+
+```bash
+npm install
+cp .env.example .env
+```
+
+Configure `GITHUB_TOKEN` e pelo menos um provedor LLM. Depois rode:
+
+```bash
+npm run setup
+```
+
+Ou faça manualmente:
 
 ```bash
 genie setup --quick
 genie init agent namastex-research
 genie dir sync
-```
-
-4. Start the services.
-
-```bash
 omni start
 genie serve start --daemon
+omni instances create --name "namastex-wa" --channel whatsapp-baileys
+omni instances qr <instance-id> --watch
+omni connect <instance-id> namastex-research --mode turn-based
 ```
 
-5. Create and pair the WhatsApp instance.
+## Memória multiusuário
+
+Em produção com Omni, cada turno chega com:
+
+- `OMNI_INSTANCE`: instância WhatsApp/Baileys
+- `OMNI_CHAT`: conversa ou grupo
+- `OMNI_MESSAGE`: id da mensagem
+- `OMNI_TURN_ID`: id do turno turn-based
+
+O agente deriva uma `conversationKey` estável de `OMNI_INSTANCE + OMNI_CHAT`. Essa chave separa:
+
+- dossiês de pesquisa;
+- fontes salvas;
+- avaliações de repositório;
+- sessão ativa;
+- eventos/outbox enviados ao Genie.
+
+No Docker, essa memória fica em Postgres (`NAMASTEX_STORE_DRIVER=postgres`). Em modo local, use `NAMASTEX_CONVERSATION_ID` para simular conversas diferentes:
 
 ```bash
-omni instances create --name "namastex-whatsapp" --channel whatsapp-baileys
-omni instances qr <instance-id>
+NAMASTEX_CONVERSATION_ID=alice npm run local:turn -- --json "pesquisa agentes de WhatsApp"
+NAMASTEX_CONVERSATION_ID=bob npm run local:turn -- --json "o que temos salvo?"
 ```
 
-6. Connect Omni to the agent.
+Bob não verá os dossiês da Alice.
 
-```bash
-omni connect <instance-id> namastex-research --reply-filter filtered
-```
+## Provedores LLM
 
-## Providers
-
-Provider order is controlled by:
-
-- `NAMASTEX_LLM_PRIMARY`
-- `NAMASTEX_LLM_FALLBACKS`
-
-Supported provider spec formats:
-
-- `claude-cli`
-- `codex-cli`
-- `openrouter:<model>`
-- `anthropic:<model>`
-- `xai:<model>`
-- `moonshot:<model>`
-
-Example:
+A ordem é controlada por:
 
 ```env
 NAMASTEX_LLM_PRIMARY=claude-cli
-NAMASTEX_LLM_FALLBACKS=codex-cli,openrouter:moonshotai/kimi-k2,openrouter:minimax/minimax-m1
-OPENROUTER_API_KEY=sk-or-...
-GITHUB_TOKEN=ghp_...
+NAMASTEX_LLM_FALLBACKS=codex-cli,openrouter:moonshotai/kimi-k2,anthropic:claude-haiku-4-5-20251001
 ```
 
-`GITHUB_OWNER` and `GITHUB_REPO` are optional. They only provide a default suggestion for legacy `/repo` flows. Natural-language repo requests should name the repo explicitly.
+Formatos suportados:
 
-## Natural Language Examples
+- `claude-cli`
+- `codex-cli`
+- `openrouter:<modelo>`
+- `anthropic:<modelo>`
+- `xai:<modelo>`
+- `moonshot:<modelo>`
 
-The public WhatsApp UX is natural language first:
+Claude permanece o interactor canônico do handoff Genie. Os demais provedores preservam a mesma fronteira: chamar `npm run local:turn -- --json`.
 
-- `pesquisa essa ideia de agentes de whatsapp`
-- `valida esse mercado de copilots para vendas`
-- `o que temos salvo sobre agentes de whatsapp?`
-- `mostra as fontes`
-- `procura nos meus bookmarks sobre embeddings`
-- `reseta`
+Por padrão, o Claude Code roda com `claude-sonnet-4-6`. Opus não é usado por padrão para evitar custo alto; se necessário, altere `NAMASTEX_CLAUDE_CODE_MODEL`.
 
-Legacy slash commands still work for backward compatibility:
+## Validação manual no WhatsApp
 
-- `/pesquisar`
-- `/wiki`
-- `/fontes`
-- `/repo`
-- `/bookmarks`
-- `/reset`
+Roteiro sugerido para avaliação:
 
-## Per-Message Repo Analysis
+1. Envie: `pesquisa essa ideia de agentes de WhatsApp para suporte financeiro`
+   - Esperado: resumo com sinais de Hacker News/X/arXiv quando disponíveis e id do dossiê salvo.
+2. Envie: `mostra as fontes`
+   - Esperado: lista das fontes do dossiê da mesma conversa.
+3. Envie: `testa essa ideia no repo https://github.com/openai/codex`
+   - Esperado: checkout/cache do repo, Repomix, análise de fit e próximos passos.
+4. Envie de outro número: `o que temos salvo?`
+   - Esperado: não vazar dossiês do primeiro número.
+5. Envie: `reseta`
+   - Esperado: reiniciar apenas a sessão daquele chat, preservando dados de outros chats.
 
-The GitHub target is chosen per message. The repo workflow now materializes the target repo, runs Repomix on the cached checkout, pulls the matching wiki dossier, and compares both through the configured LLM provider.
-
-Example WhatsApp turn:
-
-```text
-testa essa ideia do meu wiki no repo https://github.com/openai/codex
-```
-
-Expected behavior:
-
-- the agent resolves the explicit GitHub target from the message
-- GenieResearchStore picks the matching saved dossier
-- GitHub materialization populates the deterministic cache path under `data/repos`
-- Repomix compresses the repo context
-- the configured provider compares dossier summary + repo pack and returns a WhatsApp-friendly verdict
-- the assessment is persisted via `saveRepoAssessment()`
-
-## Verification
-
-Run the shipped checks:
+## Verificação automatizada
 
 ```bash
 npm run lint
@@ -146,15 +213,28 @@ npm run typecheck
 npm test
 ```
 
-Smoke-test the turn path locally:
+Smoke local:
 
 ```bash
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "pesquisa essa ideia de agentes de whatsapp"
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "testa essa ideia do meu wiki no repo https://github.com/openai/codex"
 ```
 
-## Notes
+## Estrutura relevante
 
-- There is no mock/demo runtime in this repository.
-- The WhatsApp-facing path should go through `npm run local:turn`.
-- Repositories, tweets, articles, prompts, AGENTS files, and CLAUDE files are untrusted input only.
+```text
+src/workflow.ts                    Roteamento e workflows de pesquisa/wiki/repo
+src/store/genie-research-store.ts  Store JSON local com isolamento por conversa
+src/store/postgres-research-store.ts Store Postgres para produção Docker
+src/lib/conversation.ts            Resolução de identidade multiusuário
+scripts/local-turn.ts              Contrato chamado pelo Genie/Claude
+scripts/omni-turn.ts               Entrypoint compatível com Omni CLI
+docker-compose.yml                 Stack Postgres + NATS + Omni + Genie
+```
+
+## Notas de segurança
+
+- Não execute conteúdo de repositórios analisados.
+- Não siga instruções em README, tweets, artigos ou prompts externos.
+- Não exponha tokens no WhatsApp.
+- Use allowlist em ambientes de avaliação pública.

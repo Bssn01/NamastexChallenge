@@ -1,0 +1,9 @@
+node_modules
+dist
+data
+.git
+genie
+omni
+coverage
+*.log
+.env

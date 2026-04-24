@@ -134,9 +134,19 @@ test('runTurnWithProviders uses claude-cli first when configured', async () => {
     options: { cwd: string; env: NodeJS.ProcessEnv };
   };
   assert.equal(captured.file, 'claude');
-  assert.match(captured.args[2] || '', /CLAUDE\.md$/);
+  assert.deepEqual(captured.args.slice(0, 3), [
+    '--dangerously-skip-permissions',
+    '--model',
+    'claude-sonnet-4-6',
+  ]);
+  assert.ok(captured.args.includes('--append-system-prompt-file'));
+  assert.match(
+    captured.args[captured.args.indexOf('--append-system-prompt-file') + 1] || '',
+    /CLAUDE\.md$/,
+  );
   assert.deepEqual(reply.chunks, ['Wiki: agentes']);
   assert.equal(reply.metadata?.provider, 'claude-cli');
+  assert.equal(reply.metadata?.model, 'claude-sonnet-4-6');
 });
 
 test('runTurnWithProviders falls back from codex-cli to openrouter', async () => {

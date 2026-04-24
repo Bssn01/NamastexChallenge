@@ -52,6 +52,7 @@ export interface ResearchRun {
   dossierId: string;
   createdAt: string;
   sessionId: string;
+  conversationKey?: string;
   groupResults: ResearchRunGroupResult[];
   crossGroupSummary: string;
   notes: string[];
@@ -86,6 +87,7 @@ export interface RepoAssessment {
 export interface IdeaDossier {
   id: string;
   sessionId: string;
+  conversationKey?: string;
   createdAt: string;
   updatedAt: string;
   rawIdeaText: string;
@@ -103,6 +105,7 @@ export interface ResearchRecord {
   summary: string;
   sources: ResearchSource[];
   sessionId: string;
+  conversationKey?: string;
   notes: string[];
   dossierId?: string;
   researchRunId?: string;
@@ -119,7 +122,13 @@ export interface AppConfig {
   repoCacheRoot: string;
   storePath: string;
   storeOutboxPath: string;
+  storeDriver: 'json' | 'postgres';
+  databaseUrl?: string;
   sessionId: string;
+  conversationKey: string;
+  conversationSource: 'omni' | 'explicit' | 'local';
+  omniInstanceId?: string;
+  omniChatId?: string;
   hackerNewsApiBase: string;
   hackerNewsUserAgent: string;
   defaultGithubOwner?: string;

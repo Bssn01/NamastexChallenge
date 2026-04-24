@@ -1,7 +1,7 @@
 ---
 name: namastex-research
 description: Natural-language WhatsApp research agent for the Namastex challenge.
-# model: opus
+# model: sonnet
 # promptMode: append
 # color: blue
 # effort: high

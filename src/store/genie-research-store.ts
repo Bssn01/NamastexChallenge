@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { newSessionId } from '../lib/conversation.js';
 import { appendJsonLine, readJsonFile, writeJsonFile } from '../lib/json.js';
 import type {
   DossierResource,
@@ -16,6 +17,7 @@ export interface GenieTaskEvent {
   kind: 'task' | 'event';
   id: string;
   sessionId: string;
+  conversationKey?: string;
   createdAt: string;
   payload: Record<string, unknown>;
 }
@@ -91,12 +93,15 @@ export interface GenieResearchStoreOptions {
   storePath: string;
   outboxPath: string;
   sessionId: string;
+  conversationKey: string;
 }
 
 type GenieEntity =
   | { entityType: 'dossier'; dossier: IdeaDossier }
   | { entityType: 'research-run'; dossier: IdeaDossier; researchRun: ResearchRun }
   | { entityType: 'repo-assessment'; dossier: IdeaDossier; repoAssessment: RepoAssessment };
+
+const LEGACY_CONVERSATION_KEY = 'local:demo';
 
 const emptySnapshot = (sessionId: string): GenieStoreSnapshot => ({
   version: 2,
@@ -200,6 +205,7 @@ function toLegacyResearchRecord(dossier: IdeaDossier, researchRun: ResearchRun):
     summary: researchRun.crossGroupSummary,
     sources: flattenRunResources(researchRun),
     sessionId: researchRun.sessionId,
+    conversationKey: dossier.conversationKey,
     notes: [...researchRun.notes],
     dossierId: dossier.id,
     researchRunId: researchRun.id,
@@ -232,6 +238,7 @@ function migrateRecordToDossier(record: ResearchRecord): IdeaDossier {
   return {
     id: dossierId,
     sessionId: record.sessionId,
+    conversationKey: record.conversationKey,
     createdAt: record.createdAt,
     updatedAt: record.createdAt,
     rawIdeaText: record.query,
@@ -251,6 +258,7 @@ function migrateRecordToDossier(record: ResearchRecord): IdeaDossier {
         dossierId,
         createdAt: record.createdAt,
         sessionId: record.sessionId,
+        conversationKey: record.conversationKey,
         groupResults: [
           {
             topicGroupId,
@@ -269,7 +277,12 @@ function migrateRecordToDossier(record: ResearchRecord): IdeaDossier {
   };
 }
 
-function normalizeDossier(dossier: IdeaDossier, fallbackSessionId: string): IdeaDossier {
+function normalizeDossier(
+  dossier: IdeaDossier,
+  fallbackSessionId: string,
+  _fallbackConversationKey: string,
+): IdeaDossier {
+  const conversationKey = dossier.conversationKey || LEGACY_CONVERSATION_KEY;
   const topicGroups =
     dossier.topicGroups && dossier.topicGroups.length > 0
       ? dossier.topicGroups.map(asTopicGroup)
@@ -278,6 +291,7 @@ function normalizeDossier(dossier: IdeaDossier, fallbackSessionId: string): Idea
   return {
     id: dossier.id,
     sessionId: dossier.sessionId || fallbackSessionId,
+    conversationKey,
     createdAt: dossier.createdAt,
     updatedAt: dossier.updatedAt || dossier.createdAt,
     rawIdeaText: dossier.rawIdeaText,
@@ -289,6 +303,7 @@ function normalizeDossier(dossier: IdeaDossier, fallbackSessionId: string): Idea
         dossierId: dossier.id,
         createdAt: researchRun.createdAt,
         sessionId: researchRun.sessionId || dossier.sessionId || fallbackSessionId,
+        conversationKey: researchRun.conversationKey || conversationKey,
         groupResults: (researchRun.groupResults || []).map(asResearchRunGroupResult),
         crossGroupSummary: researchRun.crossGroupSummary,
         notes: researchRun.notes ? [...researchRun.notes] : [],
@@ -320,13 +335,16 @@ function normalizeDossier(dossier: IdeaDossier, fallbackSessionId: string): Idea
 function normalizeSnapshot(
   raw: GenieStoreSnapshot | LegacyGenieStoreSnapshot,
   sessionId: string,
+  conversationKey: string,
 ): GenieStoreSnapshot {
   if ('dossiers' in raw && Array.isArray(raw.dossiers)) {
     return syncLegacyRecords({
       version: 2,
       sessionId: raw.sessionId || sessionId,
       updatedAt: raw.updatedAt || new Date().toISOString(),
-      dossiers: raw.dossiers.map((dossier) => normalizeDossier(dossier, sessionId)),
+      dossiers: raw.dossiers.map((dossier) =>
+        normalizeDossier(dossier, sessionId, conversationKey),
+      ),
       records: Array.isArray(raw.records) ? raw.records : [],
       tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
       events: Array.isArray(raw.events) ? raw.events : [],
@@ -356,6 +374,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
       kind: 'task',
       id: `task_dossier_${entity.dossier.id}`,
       sessionId: entity.dossier.sessionId,
+      conversationKey: entity.dossier.conversationKey,
       createdAt: entity.dossier.createdAt,
       payload: {
         action: 'dossier.created',
@@ -376,6 +395,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
       kind: 'task',
       id: `task_research_run_${entity.researchRun.id}`,
       sessionId: entity.researchRun.sessionId,
+      conversationKey: entity.dossier.conversationKey,
       createdAt: entity.researchRun.createdAt,
       payload: {
         action: 'research.run.appended',
@@ -394,6 +414,7 @@ export function toGenieTaskEvent(entity: GenieEntity): GenieTaskEvent {
     kind: 'task',
     id: `task_repo_assessment_${entity.repoAssessment.id}`,
     sessionId: entity.dossier.sessionId,
+    conversationKey: entity.dossier.conversationKey,
     createdAt: entity.repoAssessment.createdAt,
     payload: {
       action: 'repo.assessment.saved',
@@ -412,6 +433,7 @@ export function toGenieEvent(entity: GenieEntity): GenieTaskEvent {
       kind: 'event',
       id: `event_dossier_${entity.dossier.id}`,
       sessionId: entity.dossier.sessionId,
+      conversationKey: entity.dossier.conversationKey,
       createdAt: entity.dossier.createdAt,
       payload: {
         action: 'dossier.created',
@@ -428,6 +450,7 @@ export function toGenieEvent(entity: GenieEntity): GenieTaskEvent {
       kind: 'event',
       id: `event_research_run_${entity.researchRun.id}`,
       sessionId: entity.researchRun.sessionId,
+      conversationKey: entity.dossier.conversationKey,
       createdAt: entity.researchRun.createdAt,
       payload: {
         action: 'research.run.appended',
@@ -445,6 +468,7 @@ export function toGenieEvent(entity: GenieEntity): GenieTaskEvent {
     kind: 'event',
     id: `event_repo_assessment_${entity.repoAssessment.id}`,
     sessionId: entity.dossier.sessionId,
+    conversationKey: entity.dossier.conversationKey,
     createdAt: entity.repoAssessment.createdAt,
     payload: {
       action: 'repo.assessment.saved',
@@ -458,23 +482,24 @@ export function toGenieEvent(entity: GenieEntity): GenieTaskEvent {
 }
 
 export function createGenieResearchStore(options: GenieResearchStoreOptions): GenieResearchStore {
-  let statePromise: Promise<GenieStoreSnapshot> | null = null;
   let currentSessionId = options.sessionId;
+  const currentConversationKey = options.conversationKey;
 
   async function loadState(): Promise<GenieStoreSnapshot> {
-    if (!statePromise) {
-      statePromise = readJsonFile<GenieStoreSnapshot | LegacyGenieStoreSnapshot>(
-        options.storePath,
-        emptySnapshot(currentSessionId),
-      ).then((snapshot) => normalizeSnapshot(snapshot, currentSessionId));
-    }
-    return statePromise;
+    const snapshot = await readJsonFile<GenieStoreSnapshot | LegacyGenieStoreSnapshot>(
+      options.storePath,
+      emptySnapshot(currentSessionId),
+    );
+    return normalizeSnapshot(snapshot, currentSessionId, currentConversationKey);
+  }
+
+  function isCurrentConversation(dossier: IdeaDossier | ResearchRecord): boolean {
+    return (dossier.conversationKey || currentConversationKey) === currentConversationKey;
   }
 
   async function saveState(snapshot: GenieStoreSnapshot): Promise<void> {
     snapshot.updatedAt = new Date().toISOString();
     syncLegacyRecords(snapshot);
-    statePromise = Promise.resolve(snapshot);
     await writeJsonFile(options.storePath, snapshot);
   }
 
@@ -501,6 +526,7 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
     const dossier: IdeaDossier = {
       id: randomUUID(),
       sessionId: currentSessionId,
+      conversationKey: currentConversationKey,
       createdAt: now,
       updatedAt: now,
       rawIdeaText: input.rawIdeaText,
@@ -546,6 +572,7 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
       dossierId: dossier.id,
       createdAt: input.createdAt || new Date().toISOString(),
       sessionId: dossier.sessionId,
+      conversationKey: dossier.conversationKey,
       groupResults: input.groupResults.map(asResearchRunGroupResult),
       crossGroupSummary: input.crossGroupSummary,
       notes: input.notes ? [...input.notes] : [],
@@ -640,12 +667,14 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
 
     async listRecentDossiers(limit = 5): Promise<IdeaDossier[]> {
       const snapshot = await loadState();
-      return snapshot.dossiers.slice(0, limit);
+      return snapshot.dossiers.filter(isCurrentConversation).slice(0, limit);
     },
 
     async getDossier(dossierId: string): Promise<IdeaDossier | undefined> {
       const snapshot = await loadState();
-      return snapshot.dossiers.find((dossier) => dossier.id === dossierId);
+      return snapshot.dossiers.find(
+        (dossier) => dossier.id === dossierId && isCurrentConversation(dossier),
+      );
     },
 
     async recordResearch(input): Promise<ResearchRecord> {
@@ -685,12 +714,12 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
 
     async listRecent(limit = 5): Promise<ResearchRecord[]> {
       const snapshot = await loadState();
-      return snapshot.records.slice(0, limit);
+      return snapshot.records.filter(isCurrentConversation).slice(0, limit);
     },
 
     async resetSession(): Promise<void> {
       const snapshot = await loadState();
-      currentSessionId = randomUUID();
+      currentSessionId = newSessionId(currentConversationKey);
       snapshot.sessionId = currentSessionId;
       await saveState(snapshot);
     },

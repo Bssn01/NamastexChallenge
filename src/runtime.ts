@@ -8,15 +8,24 @@ import { createRepomixAdapter } from './adapters/repomix.js';
 import { createXSearchAdapter } from './adapters/x.js';
 import { loadConfig } from './config.js';
 import { createGenieResearchStore } from './store/genie-research-store.js';
+import { createPostgresResearchStore } from './store/postgres-research-store.js';
 
 export function createRuntime(env: NodeJS.ProcessEnv = process.env) {
   const config = loadConfig(env);
 
-  const store = createGenieResearchStore({
-    storePath: config.storePath,
-    outboxPath: config.storeOutboxPath,
-    sessionId: config.sessionId,
-  });
+  const store =
+    config.storeDriver === 'postgres'
+      ? createPostgresResearchStore({
+          databaseUrl: config.databaseUrl as string,
+          sessionId: config.sessionId,
+          conversationKey: config.conversationKey,
+        })
+      : createGenieResearchStore({
+          storePath: config.storePath,
+          outboxPath: config.storeOutboxPath,
+          sessionId: config.sessionId,
+          conversationKey: config.conversationKey,
+        });
 
   const arxiv = createArxivAdapter();
 

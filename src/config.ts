@@ -1,9 +1,12 @@
-import { randomUUID } from 'node:crypto';
 import { resolve } from 'node:path';
+import { resolveConversationIdentity } from './lib/conversation.js';
 import type { AppConfig } from './types.js';
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   const repoRoot = env.NAMASTEX_REPO_ROOT ? resolve(env.NAMASTEX_REPO_ROOT) : process.cwd();
+  const conversation = resolveConversationIdentity(env);
+  const storeDriver = env.NAMASTEX_STORE_DRIVER === 'postgres' ? 'postgres' : 'json';
+  const databaseUrl = env.NAMASTEX_DATABASE_URL || env.DATABASE_URL;
 
   const config: AppConfig = {
     repoRoot,
@@ -16,7 +19,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     storeOutboxPath: env.NAMASTEX_OUTBOX_PATH
       ? resolve(repoRoot, env.NAMASTEX_OUTBOX_PATH)
       : resolve(repoRoot, 'data', 'genie-outbox.jsonl'),
-    sessionId: env.NAMASTEX_SESSION_ID || randomUUID(),
+    storeDriver,
+    databaseUrl,
+    sessionId: conversation.sessionId,
+    conversationKey: conversation.conversationKey,
+    conversationSource: conversation.source,
+    omniInstanceId: conversation.instanceId,
+    omniChatId: conversation.chatId,
     hackerNewsApiBase: env.HACKERNEWS_API_BASE || 'https://hn.algolia.com/api/v1',
     hackerNewsUserAgent: env.HACKERNEWS_USER_AGENT || 'NamastexChallenge/0.1.0',
     defaultGithubOwner: env.GITHUB_OWNER,
@@ -60,6 +69,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
   if (!config.githubToken) {
     missing.push('GITHUB_TOKEN');
+  }
+  if (config.storeDriver === 'postgres' && !config.databaseUrl) {
+    missing.push('NAMASTEX_DATABASE_URL or DATABASE_URL');
   }
 
   if (missing.length > 0) {

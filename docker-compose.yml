@@ -1,0 +1,99 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: namastex
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-namastex}
+      POSTGRES_DB: namastex
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-postgres.sh:/docker-entrypoint-initdb.d/init-postgres.sh:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U namastex']
+      interval: 10s
+      timeout: 5s
+      retries: 8
+
+  nats:
+    image: nats:2.10-alpine
+    command: ['-js', '-sd', '/data']
+    ports:
+      - '${NATS_PORT:-4222}:4222'
+      - '${NATS_MONITOR_PORT:-8222}:8222'
+    volumes:
+      - nats_data:/data
+
+  omni:
+    build:
+      context: .
+      dockerfile: Dockerfile.omni
+    environment:
+      DATABASE_URL: postgresql://namastex:${POSTGRES_PASSWORD:-namastex}@postgres:5432/omni
+      NATS_URL: nats://nats:4222
+      OMNI_API_KEY: ${OMNI_API_KEY:-}
+      API_HOST: 0.0.0.0
+      API_PORT: 8882
+    ports:
+      - '${OMNI_PORT:-8882}:8882'
+    volumes:
+      - omni_data:/home/omni/.omni
+    depends_on:
+      postgres:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    healthcheck:
+      test: ['CMD', 'curl', '-f', 'http://localhost:8882/api/v2/health']
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
+
+  genie:
+    build:
+      context: .
+      dockerfile: Dockerfile.genie
+    environment:
+      DATABASE_URL: postgresql://namastex:${POSTGRES_PASSWORD:-namastex}@postgres:5432/genie
+      GENIE_NATS_URL: nats://nats:4222
+      NAMASTEX_DATABASE_URL: postgresql://namastex:${POSTGRES_PASSWORD:-namastex}@postgres:5432/namastex
+      NAMASTEX_STORE_DRIVER: postgres
+      NAMASTEX_REPO_ROOT: /workspace/app
+      NAMASTEX_LLM_PRIMARY: ${NAMASTEX_LLM_PRIMARY:-claude-cli}
+      NAMASTEX_LLM_FALLBACKS: ${NAMASTEX_LLM_FALLBACKS:-codex-cli}
+      NAMASTEX_CLAUDE_CODE_MODEL: ${NAMASTEX_CLAUDE_CODE_MODEL:-claude-sonnet-4-6}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      XAI_API_KEY: ${XAI_API_KEY:-}
+      MOONSHOT_API_KEY: ${MOONSHOT_API_KEY:-}
+      OMNI_API_URL: http://omni:8882
+      OMNI_API_KEY: ${OMNI_API_KEY:-}
+      OMNI_DEFAULT_INSTANCE_NAME: ${OMNI_DEFAULT_INSTANCE_NAME:-namastex-wa}
+      OMNI_ACCESS_MODE: ${OMNI_ACCESS_MODE:-}
+      OMNI_ALLOW_PHONES: ${OMNI_ALLOW_PHONES:-}
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+    volumes:
+      - genie_data:/home/appuser/.genie
+      - claude_data:/home/appuser/.claude
+      - repo_cache:/workspace/app/data
+    depends_on:
+      postgres:
+        condition: service_healthy
+      omni:
+        condition: service_healthy
+      nats:
+        condition: service_started
+    restart: on-failure
+
+volumes:
+  postgres_data:
+  nats_data:
+  omni_data:
+  genie_data:
+  claude_data:
+  repo_cache:

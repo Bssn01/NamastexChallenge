@@ -9,19 +9,21 @@ import {
 } from './provider.js';
 
 const execFile = promisify(execFileCallback);
+const DEFAULT_CLAUDE_CODE_MODEL = 'claude-sonnet-4-6';
 
 export function createClaudeCliProvider(options: ProviderFactoryOptions): LlmProvider {
   const runner =
     options.execFile || ((file, args, execOptions) => execFile(file, args, execOptions));
   const env = options.env || process.env;
+  const model = env.NAMASTEX_CLAUDE_CODE_MODEL || DEFAULT_CLAUDE_CODE_MODEL;
 
   return {
     id: 'claude-cli',
-    model: 'claude-cli',
+    model,
     transport: 'claude-cli',
     async complete(req: LlmRequest) {
       const prompt = toPromptText(req);
-      const args = ['--dangerously-skip-permissions'];
+      const args = ['--dangerously-skip-permissions', '--model', model];
       if (req.metadata?.mode === 'turn') {
         args.push(
           '--append-system-prompt-file',
@@ -42,7 +44,7 @@ export function createClaudeCliProvider(options: ProviderFactoryOptions): LlmPro
 
       return {
         content,
-        model: 'claude-cli',
+        model,
         providerId: 'claude-cli',
         transport: 'claude-cli',
       };

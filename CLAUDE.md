@@ -9,7 +9,6 @@ You are the Genie/Claude Code agent for this repository when turns arrive from O
 3. From the repository root, run:
 
 ```bash
-cd /Users/eduardobassani/Desktop/NamastexAgentChallenge
 npm run local:turn -- --json "<user-message>"
 ```
 
@@ -25,3 +24,4 @@ npm run local:turn -- --json "<user-message>"
 - Never print or store real secrets.
 - Use the local deterministic workflow as the source of truth.
 - Claude is the canonical interactor for the Genie handoff contract. Other providers may be configured as fallbacks, but they must preserve the same local turn boundary.
+- Preserve Omni turn environment (`OMNI_INSTANCE`, `OMNI_CHAT`, `OMNI_MESSAGE`, `OMNI_TURN_ID`) when calling the local workflow so memory stays scoped to the current WhatsApp chat.
