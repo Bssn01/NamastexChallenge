@@ -100,7 +100,10 @@ function parseBrainSearchOutput(
   query: string,
   context?: ResearchTopicContext,
 ): DossierResourceCandidate[] {
-  const lines = output.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const lines = output
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
   const sources: DossierResourceCandidate[] = [];
 
   for (const line of lines) {
@@ -108,7 +111,8 @@ function parseBrainSearchOutput(
     const cleaned = line.replace(/^[-*\d+.\s]+/, '').trim();
     if (!cleaned) continue;
 
-    const titleMatch = cleaned.match(/^"(.+?)"\s*(?:—|-|::)\s*(.*)$/) || cleaned.match(/^(.+?)\s+(?:—|::)\s+(.*)$/);
+    const titleMatch =
+      cleaned.match(/^"(.+?)"\s*(?:—|-|::)\s*(.*)$/) || cleaned.match(/^(.+?)\s+(?:—|::)\s+(.*)$/);
     const title = titleMatch ? titleMatch[1] : cleaned.split(/\s+/).slice(0, 10).join(' ');
     const summary = titleMatch ? titleMatch[2] : cleaned;
     const urlMatch = cleaned.match(/https?:\/\/\S+/);
@@ -153,7 +157,7 @@ export function createGenieBrainAdapter(
       const message = error instanceof Error ? error.message : String(error);
       const stdout =
         typeof (error as { stdout?: unknown }).stdout === 'string'
-          ? ((error as { stdout: string }).stdout)
+          ? (error as { stdout: string }).stdout
           : '';
       if (isMissingBinary(message)) return 'missing';
       if (isUnconfiguredOutput(stdout) || isUnconfiguredOutput(message)) return 'unconfigured';

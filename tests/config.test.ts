@@ -10,4 +10,3 @@ test('NAMASTEX_MODE=live is treated as real mode', () => {
 
   assert.equal(config.mode, 'real');
 });
-

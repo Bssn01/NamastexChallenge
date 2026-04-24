@@ -27,9 +27,10 @@ test('research workflow stores a dossier with grouped evidence', async () => {
   );
   const joined = reply.chunks.join('\n');
 
-  assert.match(joined, /Dossiê:/);
-  assert.match(joined, /Mercado:/);
-  assert.match(joined, /X:/);
+  assert.match(joined, /Já salvei isso como dossiê:/);
+  assert.match(joined, /Hacker News:/);
+  assert.match(joined, /X\/Tweets:/);
+  assert.match(joined, /arXiv:/);
 
   const snapshot = await runtime.store.snapshot();
   assert.equal(snapshot.dossiers.length, 1);

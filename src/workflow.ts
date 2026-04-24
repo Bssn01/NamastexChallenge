@@ -169,8 +169,21 @@ function rankCandidates(
 
 function formatResource(resource: ResearchSource, index: number): string {
   const published = resource.publishedAt ? ` • ${resource.publishedAt}` : '';
-  const url = resource.url ? `\n   ${resource.url}` : '';
-  return `${index + 1}. ${resource.provider.toUpperCase()}: ${resource.title}${published}\n   ${resource.summary}${url}`;
+  const url = resource.url ? `\n-> ${resource.url}` : '';
+  return `${index + 1}. ${resource.title}${published}\n${resource.summary}${url}`;
+}
+
+function formatSourceWithContext(resource: ResearchSource, index: number): string {
+  const url = resource.url ? ` -> ${resource.url}` : '';
+  return `${index + 1}. ${resource.title}${url}\nPor que importa: ${resource.summary}`;
+}
+
+function formatProviderSection(label: string, resources: DossierResource[], limit = 5): string {
+  const items = resources.slice(0, limit);
+  if (items.length === 0) {
+    return `${label}:\nNenhum resultado.`;
+  }
+  return [`${label}:`, ...items.map(formatResource)].join('\n\n');
 }
 
 function formatGroupResult(group: ResearchRunGroupResult): string {
@@ -200,35 +213,40 @@ function formatGroupResult(group: ResearchRunGroupResult): string {
 function formatResearchReply(
   dossier: IdeaDossier,
   researchRun: ResearchRun,
-  summary: GrokSummary,
-  diagnostics: string[],
+  _summary: GrokSummary,
 ): string {
-  const groups = researchRun.groupResults.map(formatGroupResult).join('\n\n');
+  const allResources = researchRun.groupResults.flatMap((group) => group.resources);
+  const hn = allResources.filter((r) => r.provider === 'hackernews');
+  const xPosts = allResources.filter((r) => r.provider === 'x');
+  const arxivPapers = allResources.filter((r) => r.provider === 'arxiv');
+
   return [
-    `Pesquisa: ${dossier.mainTopic}`,
+    'Aqui está seu resumo:',
     '',
-    `Resumo geral: ${researchRun.crossGroupSummary}`,
-    `Sinal: ${summary.caution}`,
+    formatProviderSection('Hacker News', hn),
     '',
-    `Dossiê: ${dossier.id}`,
-    `Grupos: ${dossier.topicGroups.length}`,
+    formatProviderSection('X/Tweets', xPosts),
     '',
-    groups,
-    ...(diagnostics.length > 0 ? ['', `Avisos: ${diagnostics.join(' | ')}`] : []),
+    formatProviderSection('arXiv', arxivPapers),
+    '',
+    `Já salvei isso como dossiê: ${dossier.id}`,
+    'Quer que eu aprofunde, explique melhor ou teste isso em um repositório seu?',
   ].join('\n');
 }
 
 function formatWikiReply(dossier: IdeaDossier): string {
   const latestRun = dossier.researchRuns[0];
+  const highlights = latestRun
+    ? latestRun.groupResults.map((g) => `- ${g.topicGroupLabel}: ${g.summary}`).slice(0, 3)
+    : [];
+
   return [
     `Wiki: ${dossier.mainTopic}`,
     '',
-    `Ideia: ${dossier.rawIdeaText}`,
-    '',
     `Resumo: ${latestRun?.crossGroupSummary || 'Ainda sem pesquisa consolidada.'}`,
+    ...(highlights.length > 0 ? ['', 'Destaques:', ...highlights] : []),
     '',
-    'Grupos:',
-    ...dossier.topicGroups.map((group) => `- ${group.label}: ${group.topics.join(', ')}`),
+    `Próximo passo sugerido: /fontes ${dossier.mainTopic} para ver as fontes, ou /repo <owner/repo> para testar um repositório.`,
   ].join('\n');
 }
 
@@ -237,11 +255,25 @@ function formatSourcesReply(dossier: IdeaDossier): string {
   if (!latestRun) {
     return `Fontes: ${dossier.mainTopic}\n\nAinda não existe pesquisa para este dossiê.`;
   }
-  return [
-    `Fontes: ${dossier.mainTopic}`,
-    '',
-    ...latestRun.groupResults.map(formatGroupResult),
-  ].join('\n\n');
+  const allResources = latestRun.groupResults.flatMap((group) => group.resources);
+  const hn = allResources.filter((r) => r.provider === 'hackernews');
+  const xPosts = allResources.filter((r) => r.provider === 'x');
+  const arxivPapers = allResources.filter((r) => r.provider === 'arxiv');
+
+  const sections: string[] = [`Fontes: ${dossier.mainTopic}`];
+  if (hn.length > 0) {
+    sections.push('', 'Hacker News:', ...hn.slice(0, 5).map(formatSourceWithContext));
+  }
+  if (xPosts.length > 0) {
+    sections.push('', 'X/Tweets:', ...xPosts.slice(0, 5).map(formatSourceWithContext));
+  }
+  if (arxivPapers.length > 0) {
+    sections.push('', 'arXiv:', ...arxivPapers.slice(0, 5).map(formatSourceWithContext));
+  }
+  if (sections.length === 1) {
+    sections.push('', 'Nenhuma fonte catalogada ainda.');
+  }
+  return sections.join('\n');
 }
 
 function buildRepoSources(
@@ -327,17 +359,17 @@ function deriveRepoAssessment(
 
 function formatRepoReply(
   assessment: RepoAssessment,
-  github: GitHubLabReport,
-  repomix: RepomixReport,
+  _github: GitHubLabReport,
+  _repomix: RepomixReport,
 ): string {
+  const nextStep = assessment.recommendedNextSteps[0]
+    ? `Próximo teste sugerido: ${assessment.recommendedNextSteps[0]}`
+    : 'Próximo teste sugerido: revise o README e a estrutura do repositório antes de implementar.';
+
   return [
     `Repo: ${assessment.targetRepo.canonicalSlug}`,
     '',
-    `Fit score: ${assessment.fitScore ?? 'n/a'}`,
-    `Resumo: ${assessment.fitSummary}`,
-    '',
-    `GitHub: ${github.accessible ? 'ok' : 'fallback'}`,
-    `Repomix: ${repomix.generatedFrom || (repomix.accessible ? 'repomix' : 'fallback')}`,
+    `Fit score: ${assessment.fitScore ?? 'n/a'}/100`,
     '',
     'Forças:',
     ...(assessment.strengths.length > 0
@@ -353,6 +385,8 @@ function formatRepoReply(
     ...(assessment.risks.length > 0
       ? assessment.risks.map((item) => `- ${item}`)
       : ['- sem riscos adicionais']),
+    '',
+    nextStep,
   ].join('\n');
 }
 
@@ -501,7 +535,7 @@ export async function runPesquisaWorkflow(
   diagnostics.push(brainNote);
 
   return {
-    chunks: chunkText(formatResearchReply(refreshedDossier, researchRun, summary, diagnostics)),
+    chunks: chunkText(formatResearchReply(refreshedDossier, researchRun, summary)),
     metadata: {
       dossierId: refreshedDossier.id,
       researchRunId: researchRun.id,
@@ -523,10 +557,7 @@ export async function runWikiWorkflow(
   const normalizedTopic = normalizeWhitespace(topic);
   const [dossier, brainResult] = await Promise.all([
     selectDossier(services, undefined, normalizedTopic),
-    services.genieBrain.search(
-      normalizedTopic || 'recente',
-      services.config.genieBrainSearchLimit,
-    ),
+    services.genieBrain.search(normalizedTopic || 'recente', services.config.genieBrainSearchLimit),
   ]);
 
   const baseText = dossier
@@ -538,13 +569,9 @@ export async function runWikiWorkflow(
       ? [
           '',
           'Brain:',
-          ...brainResult.sources.map((source, index) => formatResource(source, index)),
+          ...brainResult.sources.slice(0, 3).map((source, index) => formatResource(source, index)),
         ].join('\n')
-      : brainResult.state === 'missing'
-        ? '\nBrain: não instalado'
-        : brainResult.state === 'unconfigured'
-          ? '\nBrain: não configurado'
-          : '';
+      : '';
 
   return {
     chunks: chunkText(`${baseText}${brainSection}`),
@@ -648,9 +675,14 @@ export async function runBookmarksWorkflow(
     };
   }
 
+  const formattedSources = result.sources.slice(0, 5).map((source, index) => {
+    const url = source.url ? ` -> ${source.url}` : '';
+    return `${index + 1}. ${source.title}${url}\nContexto prático: ${source.summary}`;
+  });
+
   return {
     chunks: chunkText(
-      [`Bookmarks: ${query}`, '', ...result.sources.slice(0, 5).map(formatResource)].join('\n'),
+      [`Bookmarks: ${query}`, '', 'Achados locais:', ...formattedSources].join('\n'),
     ),
     metadata: { state: result.state, count: result.sources.length },
   };
@@ -659,9 +691,7 @@ export async function runBookmarksWorkflow(
 export async function runResetWorkflow(services: AppServices): Promise<WorkflowResult> {
   await services.store.resetSession();
   return {
-    chunks: [
-      'Reset concluído. A sessão local foi reiniciada; os dossiês persistentes foram preservados.',
-    ],
+    chunks: ['Reset concluído. Sessão reiniciada. Dossiês preservados.'],
     metadata: {},
   };
 }
@@ -670,9 +700,9 @@ export async function runUnknownWorkflow(command: string): Promise<WorkflowResul
   return {
     chunks: [
       [
-        `Comando: ${command}`,
+        'Não reconheci esse comando.',
         '',
-        'Use apenas /pesquisar, /wiki, /fontes, /repo, /bookmarks ou /reset.',
+        'Tente: /pesquisar, /wiki, /fontes, /repo, /bookmarks ou /reset.',
       ].join('\n'),
     ],
     metadata: {},

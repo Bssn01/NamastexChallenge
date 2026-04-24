@@ -7,6 +7,7 @@ import {
   runAutoTurn,
   runClaudeTurn,
   runCodexTurn,
+  runKimiTurn,
   runLocalTurn,
 } from '../src/turn-execution.js';
 
@@ -40,7 +41,9 @@ async function main(): Promise<void> {
         ? await runClaudeTurn(command, process.env)
         : executor === 'codex'
           ? await runCodexTurn(command, process.env)
-          : await runLocalTurn(command, process.env);
+          : executor === 'kimi'
+            ? await runKimiTurn(command, process.env)
+            : await runLocalTurn(command, process.env);
 
   if (shouldDeliverToOmni(process.env)) {
     for (const chunk of reply.chunks) {

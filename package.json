@@ -20,11 +20,13 @@
     "seed:mock": "node --import tsx scripts/seed-mock-data.ts",
     "local:turn": "node --import tsx scripts/local-turn.ts",
     "omni:turn": "node --import tsx scripts/omni-turn.ts",
+    "bridge:omni": "node --import tsx scripts/bridge-omni.ts",
     "cli": "node --import tsx src/cli.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.13.4",
+    "nats": "^2.29.3",
     "tsx": "^4.19.3",
     "typescript": "^5.7.3"
   }

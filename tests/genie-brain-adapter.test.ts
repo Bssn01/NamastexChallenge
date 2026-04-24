@@ -5,12 +5,11 @@ import { join } from 'node:path';
 import test from 'node:test';
 import { createGenieBrainAdapter } from '../src/adapters/genie-brain.js';
 
-type ExecFileFn = (
-  file: string,
-  args: string[],
-) => Promise<{ stdout: string; stderr: string }>;
+type ExecFileFn = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
 
-function makeExec(response: Record<string, { stdout?: string; stderr?: string; throws?: Error }>): ExecFileFn {
+function makeExec(
+  response: Record<string, { stdout?: string; stderr?: string; throws?: Error }>,
+): ExecFileFn {
   return async (_file, args) => {
     const subcommand = args[1];
     const entry = response[subcommand] || response['*'];
@@ -106,7 +105,8 @@ test('genie-brain adapter writes markdown and calls ingest when ready', async ()
         if (args[1] === 'ingest') return { stdout: 'ok', stderr: '' };
         if (args[1] === 'search') {
           return {
-            stdout: '1. "vector databases" — Notes about pgvector and embeddings https://example.com/a\n2. "retrieval" — RAG pipeline overview',
+            stdout:
+              '1. "vector databases" — Notes about pgvector and embeddings https://example.com/a\n2. "retrieval" — RAG pipeline overview',
             stderr: '',
           };
         }

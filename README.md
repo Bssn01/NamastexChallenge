@@ -29,6 +29,7 @@ Mock mode still exists for deterministic tests, but the project is now designed 
   - Repomix
   - optional `fieldtheory-cli`
   - optional `genie brain` knowledge graph
+  - optional Kimi / Moonshot AI (API or CLI)
 - Clear agent purpose:
   - research an idea, persist a dossier, and evaluate real GitHub repositories against that dossier
 - Public GitHub repo:
@@ -80,7 +81,7 @@ Open `.env` and make these changes:
 
 ```env
 NAMASTEX_MODE=real          # change from mock to real
-NAMASTEX_TURN_EXECUTOR=auto # Claude -> Codex/OpenAI -> local fallback
+NAMASTEX_TURN_EXECUTOR=auto # Claude -> Codex/OpenAI -> Kimi -> local fallback
 ```
 
 **Claude authentication** — pick one:
@@ -105,6 +106,14 @@ OPENROUTER_API_KEY=sk-or-...
 GITHUB_TOKEN=ghp_...
 ```
 
+**Kimi / Moonshot** (optional executor fallback):
+
+```env
+MOONSHOT_API_KEY=sk-...
+KIMI_MODEL=kimi-k2.6
+NAMASTEX_KIMI_MODE=api   # or cli if you have a non-interactive kimi binary
+```
+
 **Leave these commented** — they have sensible defaults built in:
 
 | Variable | Default |
@@ -114,6 +123,7 @@ GITHUB_TOKEN=ghp_...
 | `X_SEARCH_MODEL` | `grok-4.20-reasoning` |
 | `X_SEARCH_LIMIT` | `5` |
 | `GITHUB_OWNER` / `GITHUB_REPO` | optional — only set to pin a default repo for `/repo` |
+| `KIMI_API_BASE` | `https://api.moonshot.ai/v1` |
 
 Optional local tools:
 
@@ -173,6 +183,14 @@ omni connect <instance-id> namastex-research --reply-filter filtered
 ```
 
 The Omni bridge is already running via `genie serve` — no extra step needed.
+
+If Genie is not available or not patched, use the repo-native bridge:
+
+```bash
+npm run bridge:omni
+```
+
+This listens on NATS (default `nats://localhost:4222`, subject `namastex.turn`) and delegates to `npm run omni:turn`.
 Verify everything is healthy with:
 
 ```bash
@@ -287,6 +305,7 @@ npm run local:turn -- "/wiki agentes"
 npm run local:turn -- "/fontes agentes"
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "/pesquisar agentes de whatsapp"
 NAMASTEX_OMNI_DELIVERY=stdout NAMASTEX_TURN_EXECUTOR=codex npm run omni:turn -- "/pesquisar agentes de whatsapp"
+NAMASTEX_OMNI_DELIVERY=stdout NAMASTEX_TURN_EXECUTOR=kimi npm run omni:turn -- "/wiki agentes"
 ```
 
 ## Repository fit flow

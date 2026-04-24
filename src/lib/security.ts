@@ -5,10 +5,15 @@ const INSTRUCTION_PATTERNS = [
   /\bfollow (these|the following) instructions?\b/i,
   /\bsystem prompt\b/i,
   /\bdeveloper message\b/i,
-  /\byou are (chatgpt|claude|codex|an ai assistant)\b/i,
+  /\byou are (chatgpt|claude|codex|an ai assistant|kimi)\b/i,
   /\brun (this|the following) command\b/i,
   /\bexecute (this|the following)\b/i,
   /\bdo not obey\b/i,
+  /\bdisregard (all |any )?instructions?\b/i,
+  /\bnew instructions?\b/i,
+  /\bpassword|token|api.key|secret\b/i,
+  /<script\b/i,
+  /\bjavascript:\b/i,
 ];
 
 export const TRUST_BOUNDARY_NOTICE = [

@@ -146,4 +146,9 @@ export interface AppConfig {
   genieBrainBin: string;
   genieBrainIngestDir: string;
   genieBrainSearchLimit: number;
+  moonshotApiKey?: string;
+  kimiApiBase: string;
+  kimiModel: string;
+  kimiCliBin: string;
+  kimiMode: 'api' | 'cli';
 }

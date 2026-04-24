@@ -51,5 +51,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ? resolve(repoRoot, env.GENIE_BRAIN_INGEST_DIR)
       : resolve(repoRoot, 'data', 'brain-ingest'),
     genieBrainSearchLimit: Number(env.GENIE_BRAIN_SEARCH_LIMIT || '5'),
+    moonshotApiKey: env.MOONSHOT_API_KEY,
+    kimiApiBase: env.KIMI_API_BASE || 'https://api.moonshot.ai/v1',
+    kimiModel: env.KIMI_MODEL || 'kimi-k2.6',
+    kimiCliBin: env.KIMI_CLI_BIN || 'kimi',
+    kimiMode: env.NAMASTEX_KIMI_MODE === 'cli' ? 'cli' : 'api',
   };
 }
