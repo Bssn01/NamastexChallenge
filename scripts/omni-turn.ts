@@ -4,7 +4,9 @@ import { promisify } from 'node:util';
 import {
   extractOmniText,
   resolveTurnExecutor,
+  runAutoTurn,
   runClaudeTurn,
+  runCodexTurn,
   runLocalTurn,
 } from '../src/turn-execution.js';
 
@@ -32,9 +34,13 @@ async function main(): Promise<void> {
   const command = extractOmniText(process.argv.slice(2), process.env) || '/wiki recente';
   const executor = resolveTurnExecutor(process.env);
   const reply =
-    executor === 'claude'
-      ? await runClaudeTurn(command, process.env)
-      : await runLocalTurn(command, process.env);
+    executor === 'auto'
+      ? await runAutoTurn(command, process.env)
+      : executor === 'claude'
+        ? await runClaudeTurn(command, process.env)
+        : executor === 'codex'
+          ? await runCodexTurn(command, process.env)
+          : await runLocalTurn(command, process.env);
 
   if (shouldDeliverToOmni(process.env)) {
     for (const chunk of reply.chunks) {

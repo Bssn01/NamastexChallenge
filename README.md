@@ -12,7 +12,7 @@ Mock mode still exists for deterministic tests, but the project is now designed 
 
 - WhatsApp via Omni with Baileys:
   - use `omni instances create --channel whatsapp-baileys`
-  - pair with `omni instances qr <id> --watch`
+  - pair with `omni instances qr <id>`
 - Genie as orchestrator:
   - `CLAUDE.md` constrains Claude to the local deterministic workflow
   - register the repo with `genie dir add`
@@ -22,7 +22,7 @@ Mock mode still exists for deterministic tests, but the project is now designed 
   - `omni connect <instance-id> namastex-research --reply-filter filtered`
 - Real integrations:
   - arXiv
-  - Hacker News (live by default — no auth required)
+  - Hacker News (network-backed by default — no auth required)
   - Grok
   - X search through xAI or OpenRouter
   - GitHub
@@ -79,7 +79,8 @@ Open `.env` and make these changes:
 **Required:**
 
 ```env
-NAMASTEX_MODE=live          # change from mock to live
+NAMASTEX_MODE=real          # change from mock to real
+NAMASTEX_TURN_EXECUTOR=auto # Claude -> Codex/OpenAI -> local fallback
 ```
 
 **Claude authentication** — pick one:
@@ -119,30 +120,138 @@ Optional local tools:
 - `fieldtheory-cli` (local bookmark enrichment)
 - `genie brain` knowledge graph (requires `genie brain install` + `genie brain init`)
 
-### 5. Start Omni and Genie
-
-Example flow using the installed CLIs:
+### 5. Configure Genie (first run only)
 
 ```bash
-omni start
-genie dir add namastex-research --dir /Users/eduardobassani/Desktop/NamastexAgentChallenge
-GENIE_EXECUTOR=tmux genie serve
+genie setup --quick
 ```
 
-### 6. Create and pair the WhatsApp instance
+### 6. Scaffold the agent inside the workspace
+
+Genie expects agents under `agents/<name>/`. Scaffold once and sync:
+
+```bash
+cd /Users/bassani/Desktop/NamastexChallenge
+genie init agent namastex-research
+genie dir sync
+genie dir ls   # confirm namastex-research is registered
+```
+
+### 7. Start Omni and Genie
+
+```bash
+cd /Users/bassani/Desktop/NamastexChallenge
+omni start
+GENIE_EXECUTOR=tmux genie serve start --daemon
+```
+
+Use `GENIE_EXECUTOR=tmux` for the WhatsApp agent when you want the `provider:
+codex` setting in `agents/namastex-research/agent.yaml` to take effect. Genie
+SDK mode is Claude-SDK only; the repo wrapper still has `NAMASTEX_TURN_EXECUTOR=auto`,
+but SDK mode cannot spawn Codex directly.
+
+### 8. Create and pair the WhatsApp instance
 
 ```bash
 omni instances create --name "namastex-whatsapp" --channel whatsapp-baileys
-omni instances qr <instance-id> --watch
+omni instances connect <instance-id>
+omni instances qr <instance-id>
 ```
 
-### 7. Connect the Omni instance to the Genie agent
+Scan the QR with WhatsApp to pair. If the QR fetch fails with
+"No QR code available", restart PM2 and retry:
+
+```bash
+pm2 restart omni-api
+omni instances qr <instance-id>
+```
+
+### 9. Connect the Omni instance to the Genie agent
 
 ```bash
 omni connect <instance-id> namastex-research --reply-filter filtered
 ```
 
-### 8. Validate the live path
+The Omni bridge is already running via `genie serve` — no extra step needed.
+Verify everything is healthy with:
+
+```bash
+cd /Users/bassani/Desktop/NamastexChallenge
+genie doctor
+```
+
+### Live Bridge Change Runbook
+
+Run these from the repository root:
+
+```bash
+cd /Users/bassani/Desktop/NamastexChallenge
+```
+
+After editing `agents/namastex-research/agent.yaml`, `AGENTS.md`, or agent
+identity files:
+
+```bash
+genie dir sync
+genie dir ls
+```
+
+After editing `src/turn-execution.ts`, `scripts/omni-turn.ts`, `CLAUDE.md`,
+`AGENTS.md`, `agents/namastex-research/AGENTS.md`, or the WhatsApp turn
+behavior:
+
+```bash
+npm test
+npm run typecheck
+NAMASTEX_OMNI_DELIVERY=stdout NAMASTEX_TURN_EXECUTOR=local npm run omni:turn -- "/pesquisar agentes de whatsapp"
+genie serve stop
+GENIE_EXECUTOR=tmux genie serve start --daemon
+```
+
+After editing Genie provider code under `genie/src/`, rebuild Genie and restart
+the real bridge so the globally installed `genie` command picks up the change:
+
+```bash
+cd /Users/bassani/Desktop/NamastexChallenge/genie
+bun test src/lib/provider-adapters.test.ts src/lib/providers/codex.test.ts
+bun run build
+cp dist/genie.js /Users/bassani/.bun/install/global/node_modules/@automagik/genie/dist/genie.js
+cd /Users/bassani/Desktop/NamastexChallenge
+genie serve stop
+GENIE_EXECUTOR=tmux genie serve start --daemon
+```
+
+If WhatsApp messages do not produce any reply:
+
+```bash
+omni status
+genie doctor
+omni start
+genie serve stop
+GENIE_EXECUTOR=tmux genie serve start --daemon
+```
+
+If Omni receives the message but Genie logs an empty response (`parts:0`) or
+keeps using an old Claude executor after switching the agent to Codex:
+
+```bash
+genie agent kill namastex-research
+genie dir sync
+genie db query "update executors set state='terminated', ended_at=now(), closed_at=coalesce(closed_at, now()), close_reason=coalesce(close_reason, 'manual reset stale omni provider'), outcome=coalesce(outcome, 'failed') where agent_id in (select id from agents where name='namastex-research') and state not in ('terminated', 'done')"
+genie db query "update agents set current_executor_id=null, state=null where name='namastex-research'"
+genie serve stop
+GENIE_EXECUTOR=tmux genie serve start --daemon
+```
+
+If Claude is out of credits, use the Codex/OpenAI path:
+
+```bash
+genie serve stop
+GENIE_EXECUTOR=tmux genie serve start --daemon
+NAMASTEX_OMNI_DELIVERY=stdout NAMASTEX_TURN_EXECUTOR=codex npm run omni:turn -- "/pesquisar agentes de whatsapp"
+```
+
+### 10. Validate the real path
 
 Send a WhatsApp message such as:
 
@@ -157,8 +266,8 @@ GRUPOS NICHO:
 Expected behavior:
 
 - Omni receives the message
-- Claude is constrained by `CLAUDE.md`
-- Claude runs `npm run local:turn -- --json "$OMNI_MESSAGE"` exactly once
+- Genie uses Claude first when available, then Codex/OpenAI, then the local workflow fallback
+- the active agent runs `npm run local:turn -- --json "<user-message>"` exactly once
 - the workflow stores a dossier and research run
 - Omni returns the reply to WhatsApp with `omni say` and finalizes with `omni done`
 
@@ -177,6 +286,7 @@ npm run local:turn -- "/pesquisar agentes de whatsapp"
 npm run local:turn -- "/wiki agentes"
 npm run local:turn -- "/fontes agentes"
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "/pesquisar agentes de whatsapp"
+NAMASTEX_OMNI_DELIVERY=stdout NAMASTEX_TURN_EXECUTOR=codex npm run omni:turn -- "/pesquisar agentes de whatsapp"
 ```
 
 ## Repository fit flow
@@ -267,4 +377,4 @@ npm test
 - `tests/`: automated coverage for workflow, adapters, security, and turn execution
 - `fixtures/mock/`: deterministic mock data
 - `data/`: local runtime state, cached analyzed repos, brain ingest artifacts
-- `genie/` and `omni/`: local external dependencies used in the live bridge
+- `genie/` and `omni/`: local external dependencies used in the real bridge

@@ -3,6 +3,7 @@ import { resolve } from 'node:path';
 import type { AppConfig, RuntimeMode } from './types.js';
 
 function runtimeMode(value: string | undefined): RuntimeMode {
+  if (value === 'live') return 'real';
   if (value === 'real' || value === 'dev' || value === 'mock') return value;
   return 'mock';
 }
