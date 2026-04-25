@@ -41,10 +41,14 @@ test('admin auth commands map local and docker providers', () => {
     file: 'codex',
     args: ['login'],
   });
-  assert.deepEqual(buildProviderAuthCommand('claude', 'docker'), {
-    file: 'docker',
-    args: ['compose', 'exec', '-it', '-u', 'appuser', 'genie', 'claude'],
-  });
+  const dockerClaudeAuth = buildProviderAuthCommand('claude', 'docker');
+  assert.equal(dockerClaudeAuth?.file, 'sh');
+  assert.match(dockerClaudeAuth?.args.join(' ') || '', /docker compose/);
+  assert.match(dockerClaudeAuth?.args.join(' ') || '', /docker-compose/);
+  assert.match(
+    dockerClaudeAuth?.args.join(' ') || '',
+    /'exec' '-it' '-u' 'appuser' 'genie' 'claude'/,
+  );
   assert.equal(buildProviderAuthCommand('kimi', 'local'), undefined);
 
   const shell = authCommandToShell({ file: 'codex', args: ['login'] }, '/tmp/app path');
@@ -58,15 +62,14 @@ test('admin auth commands map local and docker providers', () => {
 });
 
 test('admin action mapping is whitelisted and mode-aware', () => {
-  assert.deepEqual(buildAdminActionCommands('/repo', 'docker', 'genie.serve.restart'), [
-    {
-      label: 'genie restart',
-      file: 'docker',
-      args: ['compose', 'restart', 'genie'],
-      cwd: '/repo',
-      timeoutMs: 20000,
-    },
-  ]);
+  const dockerRestart = buildAdminActionCommands('/repo', 'docker', 'genie.serve.restart')[0];
+  assert.equal(dockerRestart?.label, 'genie restart');
+  assert.equal(dockerRestart?.file, 'sh');
+  assert.equal(dockerRestart?.cwd, '/repo');
+  assert.equal(dockerRestart?.timeoutMs, 20000);
+  assert.match(dockerRestart?.args.join(' ') || '', /docker compose/);
+  assert.match(dockerRestart?.args.join(' ') || '', /docker-compose/);
+  assert.match(dockerRestart?.args.join(' ') || '', /'restart' 'genie'/);
   assert.deepEqual(
     buildAdminActionCommands('/repo', 'local', 'omni.instance.restart', { id: 'abc' })[0]?.args,
     ['instances', 'restart', 'abc'],

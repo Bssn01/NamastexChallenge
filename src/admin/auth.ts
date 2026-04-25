@@ -1,4 +1,5 @@
 import type { AdminMode } from './commands.js';
+import { dockerComposeShell } from './docker-compose.js';
 
 export type ProviderAuthTarget = 'claude' | 'codex' | 'kimi';
 
@@ -31,16 +32,18 @@ export function buildProviderAuthCommand(
   if (provider === 'kimi') return undefined;
   if (mode === 'docker') {
     return {
-      file: 'docker',
+      file: 'sh',
       args: [
-        'compose',
-        'exec',
-        '-it',
-        '-u',
-        'appuser',
-        'genie',
-        provider === 'claude' ? 'claude' : 'codex',
-        ...(provider === 'codex' ? ['login'] : []),
+        '-lc',
+        dockerComposeShell([
+          'exec',
+          '-it',
+          '-u',
+          'appuser',
+          'genie',
+          provider === 'claude' ? 'claude' : 'codex',
+          ...(provider === 'codex' ? ['login'] : []),
+        ]),
       ],
     };
   }

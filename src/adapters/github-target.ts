@@ -1,6 +1,6 @@
 import { execFile as execFileCallback } from 'node:child_process';
 import { mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 const execFile = promisify(execFileCallback);
@@ -64,8 +64,31 @@ function createResolution(
   };
 }
 
+function invalidResolution(
+  input: string | undefined,
+  apiBase: string,
+  reason: string,
+): GitHubTargetResolution {
+  return createResolution(
+    { owner: 'unknown', repo: 'unknown', normalizedFrom: 'defaults' },
+    input,
+    apiBase,
+    [reason, 'No repository cache path will be materialized for this target.'],
+  );
+}
+
 function normalizeRepoName(repo: string): string {
   return repo.replace(/\.git$/i, '').trim();
+}
+
+function validateSlug(owner: string, repo: string): string | undefined {
+  if (!/^[A-Za-z0-9](?:[A-Za-z0-9-]{0,37}[A-Za-z0-9])?$/.test(owner)) {
+    return `Invalid GitHub owner: ${owner || '(empty)'}.`;
+  }
+  if (!/^[A-Za-z0-9._-]+$/.test(repo) || repo === '.' || repo === '..') {
+    return `Invalid GitHub repository name: ${repo || '(empty)'}.`;
+  }
+  return undefined;
 }
 
 function parseGitHubTarget(input: string): NormalizedSlug | null {
@@ -121,7 +144,12 @@ function cacheRootFromOptions(options: GitHubTargetResolverOptions): string {
 }
 
 function targetCachePath(cacheRoot: string, owner: string, repo: string): string {
-  return resolve(cacheRoot, owner, repo);
+  const localPath = resolve(cacheRoot, owner, repo);
+  const relativePath = relative(cacheRoot, localPath);
+  if (!relativePath || relativePath.startsWith('..') || isAbsolute(relativePath)) {
+    throw new Error('Resolved repository cache path escapes the configured cache root.');
+  }
+  return localPath;
 }
 
 function authGitArgs(token?: string): string[] {
@@ -242,14 +270,23 @@ export async function resolveGitHubTarget(
   input: string | undefined,
   options: GitHubTargetResolverOptions,
 ): Promise<GitHubTargetResolution> {
-  const normalized = input ? parseGitHubTarget(input) : null;
-  if (normalized) {
+  const explicitInput = input?.trim();
+  const normalized = explicitInput ? parseGitHubTarget(explicitInput) : null;
+  if (explicitInput && normalized) {
+    const invalid = validateSlug(normalized.owner, normalized.repo);
+    if (invalid) return invalidResolution(input, options.githubApiBase, invalid);
     return createResolution(normalized, input, options.githubApiBase, [
       'Target normalized from explicit GitHub input.',
     ]);
   }
 
+  if (explicitInput) {
+    return invalidResolution(input, options.githubApiBase, 'Invalid GitHub target format.');
+  }
+
   if (options.defaultOwner && options.defaultRepo) {
+    const invalid = validateSlug(options.defaultOwner, options.defaultRepo);
+    if (invalid) return invalidResolution(input, options.githubApiBase, invalid);
     return createResolution(
       {
         owner: options.defaultOwner,
@@ -275,20 +312,26 @@ export async function materializeGitHubTarget(
   options: GitHubTargetResolverOptions & { defaultBranch?: string },
 ): Promise<MaterializedGitHubTarget> {
   const cacheRoot = cacheRootFromOptions(options);
-  const localPath = targetCachePath(cacheRoot, target.owner, target.repo);
+  const invalid = validateSlug(target.owner, target.repo);
+  const localPath = invalid
+    ? targetCachePath(cacheRoot, 'unknown', 'unknown')
+    : targetCachePath(cacheRoot, target.owner, target.repo);
   const defaultBranch = options.defaultBranch;
 
   await mkdir(cacheRoot, { recursive: true });
 
   const notes = [...target.notes, 'Repository contents are treated as untrusted input only.'];
 
-  if (target.owner === 'unknown' || target.repo === 'unknown') {
+  if (target.owner === 'unknown' || target.repo === 'unknown' || invalid) {
     return {
       ...target,
       cacheRoot,
       localPath,
       defaultBranch,
-      notes: [...notes, 'Repository could not be materialized because the target was unresolved.'],
+      notes: [
+        ...notes,
+        invalid || 'Repository could not be materialized because the target was unresolved.',
+      ],
     };
   }
 

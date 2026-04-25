@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { DOCKER_COMPOSE_VERSION_CHECK, dockerComposeShell } from './docker-compose.js';
 import { readEnvValues } from './env.js';
 
 export type AdminMode = 'local' | 'docker';
@@ -174,8 +175,8 @@ export async function runPlannedCommand(
 function dockerCompose(repoRoot: string, args: string[], label: string): PlannedCommand {
   return {
     label,
-    file: 'docker',
-    args: ['compose', ...args],
+    file: 'sh',
+    args: ['-lc', dockerComposeShell(args)],
     cwd: repoRoot,
     timeoutMs: 20_000,
   };
@@ -379,6 +380,23 @@ async function commandExists(
   };
 }
 
+async function dockerStatus(repoRoot: string, executor: CommandExecutor): Promise<ToolStatus> {
+  const docker = await commandExists(repoRoot, executor, 'docker');
+  if (!docker.installed) return docker;
+
+  const compose = await executor.run('sh', ['-lc', DOCKER_COMPOSE_VERSION_CHECK], {
+    cwd: repoRoot,
+    timeoutMs: 5_000,
+  });
+  return {
+    installed: compose.exitCode === 0,
+    detail:
+      compose.exitCode === 0
+        ? `${docker.detail || 'docker'}; ${compose.stdout.trim()}`
+        : `Docker found, but Compose is unavailable: ${compose.stderr.trim() || compose.stdout.trim()}`,
+  };
+}
+
 async function dockerToolExists(
   repoRoot: string,
   executor: CommandExecutor,
@@ -456,7 +474,7 @@ export async function collectProviderStatus(
           omni: fromContainer.tools.omni || { installed: false },
           claude: fromContainer.tools.claude || { installed: false },
           codex: fromContainer.tools.codex || { installed: false },
-          docker: await commandExists(repoRoot, executor, 'docker'),
+          docker: await dockerStatus(repoRoot, executor),
         },
         apiProviders: {
           ...apiProviders,
@@ -469,7 +487,7 @@ export async function collectProviderStatus(
       dockerToolExists(repoRoot, executor, 'omni'),
       dockerToolExists(repoRoot, executor, 'claude'),
       dockerToolExists(repoRoot, executor, 'codex'),
-      commandExists(repoRoot, executor, 'docker'),
+      dockerStatus(repoRoot, executor),
     ]);
     return {
       generatedAt: new Date().toISOString(),
@@ -484,7 +502,7 @@ export async function collectProviderStatus(
     commandExists(repoRoot, executor, 'omni'),
     commandExists(repoRoot, executor, 'claude'),
     commandExists(repoRoot, executor, 'codex'),
-    commandExists(repoRoot, executor, 'docker'),
+    dockerStatus(repoRoot, executor),
   ]);
   return {
     generatedAt: new Date().toISOString(),

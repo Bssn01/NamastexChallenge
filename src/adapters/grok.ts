@@ -1,4 +1,4 @@
-import { normalizeWhitespace } from '../lib/text.js';
+import { sanitizeUntrustedText as sanitizeUntrustedEvidenceText } from '../lib/security.js';
 import type { ResearchSource } from '../types.js';
 import type { ResearchTopicContext } from './arxiv.js';
 import { resolveProviders } from './llm/index.js';
@@ -49,16 +49,8 @@ export interface GrokSynthesisContext extends ResearchTopicContext {
   }>;
 }
 
-export function sanitizeUntrustedText(value: string): string {
-  return normalizeWhitespace(
-    value
-      .replace(/```[\s\S]*?```/g, '[code removed]')
-      .replace(/<\s*\/?\s*(system|assistant|tool|developer|instruction)[^>]*>/gi, '[tag removed]')
-      .replace(
-        /\b(ignore (all|any|previous) instructions|run this command|execute this|system prompt|developer message)\b/gi,
-        '[instruction-like text removed]',
-      ),
-  );
+export function sanitizeUntrustedText(value: string, maxLength = 1200): string {
+  return sanitizeUntrustedEvidenceText(value, maxLength);
 }
 
 export function trustBoundaryPrompt(): string {
@@ -128,7 +120,7 @@ function buildUserPrompt(
 }
 
 function truncateForBudget(value: string, maxChars: number): string {
-  const normalized = sanitizeUntrustedText(value);
+  const normalized = sanitizeUntrustedText(value, maxChars);
   if (normalized.length <= maxChars) return normalized;
   return `${normalized.slice(0, maxChars)}\n...[truncated]`;
 }

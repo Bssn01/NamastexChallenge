@@ -11,7 +11,7 @@ const INSTRUCTION_PATTERNS = [
   /\bdo not obey\b/i,
   /\bdisregard (all |any )?instructions?\b/i,
   /\bnew instructions?\b/i,
-  /\bpassword|token|api.key|secret\b/i,
+  /(?:^|[^A-Za-z0-9])(?:password|token|api[-_. ]?key|secret|oauth)(?:[^A-Za-z0-9]|$)/i,
   /<script\b/i,
   /\bjavascript:\b/i,
 ];

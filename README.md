@@ -92,6 +92,8 @@ OMNI_ALLOW_PHONES=+5511999999999,+5511888888888
 
 ### 2. Subir o stack
 
+Pré-requisito: Docker com Compose v2 (`docker compose`) disponível no host.
+
 ```bash
 docker compose up -d --build
 ```
@@ -274,8 +276,8 @@ npm test
 Smoke local:
 
 ```bash
-NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "pesquisa essa ideia de agentes de whatsapp"
-NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "testa essa ideia do meu wiki no repo https://github.com/openai/codex"
+npm run local:turn -- --json "o que voce pode fazer?"
+NAMASTEX_LOCAL_TURN_ONLY=1 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "o que voce pode fazer?"
 ```
 
 Update news recorrente local:

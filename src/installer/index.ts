@@ -17,6 +17,7 @@ import {
   text,
 } from '@clack/prompts';
 import { LLM_PROVIDER_CATALOG } from '../adapters/llm/provider.js';
+import { DOCKER_COMPOSE_VERSION_CHECK } from '../admin/docker-compose.js';
 
 interface InstallerState {
   repoRoot: string;
@@ -30,6 +31,7 @@ interface DetectedTools {
   claude: boolean;
   codex: boolean;
   docker: boolean;
+  dockerCompose: boolean;
 }
 
 interface OmniInstance {
@@ -44,6 +46,14 @@ interface OmniInstance {
 async function ensureAccessible(command: string): Promise<boolean> {
   return new Promise((resolvePromise) => {
     const child = spawn('sh', ['-lc', `command -v ${command}`], { stdio: 'ignore' });
+    child.on('close', (code) => resolvePromise(code === 0));
+    child.on('error', () => resolvePromise(false));
+  });
+}
+
+async function ensureDockerComposeAccessible(): Promise<boolean> {
+  return new Promise((resolvePromise) => {
+    const child = spawn('sh', ['-lc', DOCKER_COMPOSE_VERSION_CHECK], { stdio: 'ignore' });
     child.on('close', (code) => resolvePromise(code === 0));
     child.on('error', () => resolvePromise(false));
   });
@@ -349,12 +359,13 @@ async function isOmniHealthy(repoRoot: string): Promise<boolean> {
 async function detectTools(repoRoot: string): Promise<DetectedTools> {
   const s = spinner();
   s.start('Checking local CLI availability');
-  const [omni, genie, claude, codex, docker] = await Promise.all([
+  const [omni, genie, claude, codex, docker, dockerCompose] = await Promise.all([
     ensureAccessible('omni'),
     ensureAccessible('genie'),
     ensureAccessible('claude'),
     ensureAccessible('codex'),
     ensureAccessible('docker'),
+    ensureDockerComposeAccessible(),
   ]);
   s.stop(
     [
@@ -363,9 +374,10 @@ async function detectTools(repoRoot: string): Promise<DetectedTools> {
       `Claude CLI ${claude ? 'found' : 'missing'}`,
       `Codex CLI ${codex ? 'found' : 'missing'}`,
       `Docker ${docker ? 'found' : 'missing'}`,
+      `Docker Compose ${dockerCompose ? 'found' : 'missing'}`,
     ].join(', '),
   );
-  return { omni, genie, claude, codex, docker };
+  return { omni, genie, claude, codex, docker, dockerCompose };
 }
 
 async function bootstrapIfNeeded(repoRoot: string, detected: DetectedTools) {
@@ -486,7 +498,7 @@ async function detectSetupRuntime(
   repoRoot: string,
   detected: DetectedTools,
 ): Promise<'local' | 'docker'> {
-  if (!detected.docker) return 'local';
+  if (!detected.docker || !detected.dockerCompose) return 'local';
   try {
     const result = await runCommand('docker', ['compose', 'ps', '--format', 'json'], {
       cwd: repoRoot,

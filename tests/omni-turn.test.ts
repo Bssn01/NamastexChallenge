@@ -57,12 +57,8 @@ test('api turn prompt describes json format', () => {
   const prompt = buildApiTurnPrompt('pesquisa essa ideia de agentes');
 
   assert.match(prompt, /WhatsApp/);
-  assert.match(
-    prompt,
-    /Supported intents: greeting, capabilities, github-repos, saved-topics, monitor, research, wiki, sources, repo, bookmarks, reset, clarify/,
-  );
-  assert.match(prompt, /JSON/);
-  assert.match(prompt, /chunks/);
+  assert.match(prompt, /must not synthesize WhatsApp turn results directly/i);
+  assert.match(prompt, /npm run local:turn -- --json/);
 });
 
 test('turn output parser accepts fenced json payloads', () => {
@@ -149,10 +145,10 @@ test('runTurnWithProviders uses claude-cli first when configured', async () => {
   assert.equal(reply.metadata?.model, 'claude-sonnet-4-6');
 });
 
-test('runTurnWithProviders falls back from codex-cli to openrouter', async () => {
+test('runTurnWithProviders falls back from codex-cli to the local workflow boundary', async () => {
   const calls: string[] = [];
   const reply = await runTurnWithProviders(
-    'o que temos salvo sobre agentes',
+    'oi',
     {
       GITHUB_TOKEN: 'token',
       NAMASTEX_REPO_ROOT: '/tmp/namastex-test',
@@ -165,28 +161,18 @@ test('runTurnWithProviders falls back from codex-cli to openrouter', async () =>
         calls.push(file);
         throw new Error('codex unavailable');
       },
-      fetch: async (url, init) => {
+      fetch: async (url, _init) => {
         calls.push(url);
-        return {
-          ok: true,
-          status: 200,
-          text: async () => '',
-          json: async () => ({
-            choices: [
-              {
-                message: {
-                  content: '{"command":"wiki","chunks":["Wiki via OpenRouter"],"metadata":{}}',
-                },
-              },
-            ],
-          }),
-        };
+        throw new Error('API provider should not execute a WhatsApp turn directly.');
       },
     },
   );
 
-  assert.deepEqual(calls, ['codex', 'https://openrouter.ai/api/v1/chat/completions']);
-  assert.deepEqual(reply.chunks, ['Wiki via OpenRouter']);
-  assert.equal(reply.metadata?.provider, 'openrouter:moonshotai/kimi-k2');
+  assert.deepEqual(calls, ['codex']);
+  assert.equal(reply.command, 'greeting');
+  assert.equal(reply.metadata?.provider, 'local-workflow');
   assert.deepEqual(reply.metadata?.turnFallbacks, ['codex-cli: codex unavailable']);
+  assert.deepEqual(reply.metadata?.turnProviderSkips, [
+    'openrouter:moonshotai/kimi-k2: local workflow boundary handled in-process',
+  ]);
 });

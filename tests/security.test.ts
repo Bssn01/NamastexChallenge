@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import { sanitizeUntrustedText as sanitizeGrokText } from '../src/adapters/grok.js';
 import { isSupportedCommand } from '../src/lib/commands.js';
 import { TRUST_BOUNDARY_NOTICE, sanitizeUntrustedText } from '../src/lib/security.js';
 
@@ -42,4 +43,12 @@ test('command allowlist rejects unsupported commands', () => {
 
 test('trust boundary notice is explicit', () => {
   assert.match(TRUST_BOUNDARY_NOTICE, /untrusted data only/i);
+});
+
+test('grok prompt sanitization reuses secret redaction', () => {
+  const sanitized = sanitizeGrokText('Useful repo context.\nSECRET_TOKEN=sk-real-looking-value');
+
+  assert.match(sanitized, /Useful repo context/);
+  assert.doesNotMatch(sanitized, /sk-real-looking-value/);
+  assert.match(sanitized, /\[instruction-like text omitted\]/);
 });
