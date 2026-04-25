@@ -80,6 +80,7 @@ services:
     volumes:
       - genie_data:/home/appuser/.genie
       - claude_data:/home/appuser/.claude
+      - codex_data:/home/appuser/.codex
       - repo_cache:/workspace/app/data
     depends_on:
       postgres:
@@ -96,4 +97,5 @@ volumes:
   omni_data:
   genie_data:
   claude_data:
+  codex_data:
   repo_cache:

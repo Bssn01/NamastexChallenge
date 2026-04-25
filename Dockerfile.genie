@@ -10,6 +10,7 @@ ENV PATH="/root/.bun/bin:/root/.local/bin:$PATH"
 
 RUN bun add -g @automagik/omni
 RUN curl -fsSL https://raw.githubusercontent.com/automagik-dev/genie/main/install.sh | bash
+RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 RUN ln -sf /root/.bun/bin/omni /usr/local/bin/omni \
   && ln -sf /root/.bun/bin/genie /usr/local/bin/genie \

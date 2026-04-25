@@ -3,7 +3,11 @@ import { resolve } from 'node:path';
 import { resolveConversationIdentity } from './lib/conversation.js';
 import type { AppConfig } from './types.js';
 
-function parseDotenv(contents: string): Record<string, string> {
+export interface LoadConfigOptions {
+  allowPartial?: boolean;
+}
+
+export function parseDotenv(contents: string): Record<string, string> {
   return contents
     .split(/\r?\n/)
     .map((line) => line.trim())
@@ -26,7 +30,31 @@ function loadProcessEnvWithDotenv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   };
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+export function findMissingConfig(config: AppConfig): string[] {
+  const missing: string[] = [];
+  if (
+    !config.llm.openrouterKey &&
+    !config.llm.anthropicKey &&
+    !config.llm.xaiKey &&
+    !config.llm.moonshotKey &&
+    !config.llm.primary.includes('claude-cli') &&
+    !config.llm.primary.includes('codex-cli')
+  ) {
+    missing.push('A configured LLM provider (Claude CLI, Codex CLI, or API key-backed provider)');
+  }
+  if (!config.githubToken) {
+    missing.push('GITHUB_TOKEN');
+  }
+  if (config.storeDriver === 'postgres' && !config.databaseUrl) {
+    missing.push('NAMASTEX_DATABASE_URL or DATABASE_URL');
+  }
+  return missing;
+}
+
+export function loadConfig(
+  env: NodeJS.ProcessEnv = process.env,
+  options: LoadConfigOptions = {},
+): AppConfig {
   const effectiveEnv = loadProcessEnvWithDotenv(env);
   const repoRoot = effectiveEnv.NAMASTEX_REPO_ROOT
     ? resolve(effectiveEnv.NAMASTEX_REPO_ROOT)
@@ -83,25 +111,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     genieBrainSearchLimit: Number(effectiveEnv.GENIE_BRAIN_SEARCH_LIMIT || '5'),
   };
 
-  const missing: string[] = [];
-  if (
-    !config.llm.openrouterKey &&
-    !config.llm.anthropicKey &&
-    !config.llm.xaiKey &&
-    !config.llm.moonshotKey &&
-    !config.llm.primary.includes('claude-cli') &&
-    !config.llm.primary.includes('codex-cli')
-  ) {
-    missing.push('A configured LLM provider (Claude CLI, Codex CLI, or API key-backed provider)');
-  }
-  if (!config.githubToken) {
-    missing.push('GITHUB_TOKEN');
-  }
-  if (config.storeDriver === 'postgres' && !config.databaseUrl) {
-    missing.push('NAMASTEX_DATABASE_URL or DATABASE_URL');
-  }
+  const missing = findMissingConfig(config);
 
-  if (missing.length > 0) {
+  if (!options.allowPartial && missing.length > 0) {
     throw new Error(
       `Missing required environment variables: ${missing.join(', ')}. Please fill your .env file before running the project.`,
     );

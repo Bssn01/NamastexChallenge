@@ -119,6 +119,14 @@ Quando o bootstrap terminar, o log do Genie deve mostrar:
 === Namastex bootstrap OK ===
 ```
 
+Se for usar Claude/Codex interativos dentro do container, rode estes comandos no host para abrir
+um terminal de login preso aos volumes persistidos:
+
+```bash
+npm run auth:claude -- --mode docker
+npm run auth:codex -- --mode docker
+```
+
 ## Setup local avançado
 
 ```bash
@@ -142,8 +150,9 @@ complete o login no navegador. Depois rode:
 npm run setup
 ```
 
-O setup interativo detecta `claude`, `codex`, `omni` e `genie`, pergunta pelos segredos
-necessários e cria/pareia a instância WhatsApp.
+O setup interativo detecta `claude`, `codex`, `docker`, `omni` e `genie`, pergunta pelos
+segredos necessários, abre terminais de login quando um provedor CLI selecionado precisa de
+autenticação, e cria/pareia a instância WhatsApp.
 
 Ou faça manualmente:
 
@@ -157,6 +166,39 @@ omni instances create --name "namastex-wa" --channel whatsapp-baileys
 omni instances qr <instance-id>
 omni connect <instance-id> namastex-research --mode turn-based
 ```
+
+## Painel admin local
+
+O painel admin é manual-only: ele só roda quando alguém executa o comando na máquina que hospeda
+o agente. Por padrão, fica preso em `127.0.0.1`, abre o navegador e usa um token efêmero para
+as chamadas administrativas.
+
+```bash
+npm run admin
+```
+
+Opções úteis:
+
+```bash
+npm run admin -- --mode docker
+npm run admin -- --mode local --port 3777 --no-open
+```
+
+O painel mostra status de Genie/Omni/Docker, sessões Genie, agentes, instâncias WhatsApp, turns,
+chats, regras de acesso, eventos recentes, configuração redigida e memória salva. Também permite
+iniciar/parar/reiniciar Genie e Omni, parar/resumir/matar agentes, reiniciar/desconectar instâncias,
+fechar turns, mostrar QR e resetar/limpar memória por conversa com confirmação explícita.
+
+Para autenticação manual de provedores:
+
+```bash
+npm run auth:claude
+npm run auth:codex
+npm run auth:kimi
+```
+
+Kimi usa o caminho API já suportado (`openrouter:moonshotai/kimi-k2` ou `moonshot:kimi-k2.6`);
+não há Kimi CLI neste projeto.
 
 ## Memória multiusuário
 
@@ -256,6 +298,7 @@ src/store/postgres-research-store.ts Store Postgres para produção Docker
 src/lib/conversation.ts            Resolução de identidade multiusuário
 scripts/local-turn.ts              Contrato chamado pelo Genie/Claude
 scripts/omni-turn.ts               Entrypoint compatível com Omni CLI
+src/admin/cli.ts                   Servidor local do painel admin
 docker-compose.yml                 Stack Postgres + NATS + Omni + Genie
 ```
 

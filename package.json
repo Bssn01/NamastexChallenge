@@ -6,6 +6,7 @@
   "description": "WhatsApp research agent for the Namastex technical challenge.",
   "license": "UNLICENSED",
   "bin": {
+    "namastex-admin": "dist/admin/cli.js",
     "namastex-setup": "dist/installer/index.js"
   },
   "dependencies": {
@@ -21,6 +22,10 @@
     "lint:fix": "biome check --write src tests scripts",
     "format": "biome format --write src tests scripts",
     "deps:bootstrap": "bash scripts/bootstrap-deps.sh",
+    "admin": "node --import tsx src/admin/cli.ts",
+    "auth:claude": "node --import tsx scripts/auth-provider.ts claude",
+    "auth:codex": "node --import tsx scripts/auth-provider.ts codex",
+    "auth:kimi": "node --import tsx scripts/auth-provider.ts kimi",
     "setup": "node --import tsx src/installer/index.ts",
     "local:turn": "node --import tsx scripts/local-turn.ts",
     "update-news:due": "node --import tsx scripts/update-news-due.ts",

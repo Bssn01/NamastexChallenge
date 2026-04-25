@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { access, readFile, rename, stat, writeFile } from 'node:fs/promises';
+import { homedir } from 'node:os';
 import { resolve } from 'node:path';
 import {
   confirm,
@@ -28,6 +29,7 @@ interface DetectedTools {
   genie: boolean;
   claude: boolean;
   codex: boolean;
+  docker: boolean;
 }
 
 interface OmniInstance {
@@ -347,11 +349,12 @@ async function isOmniHealthy(repoRoot: string): Promise<boolean> {
 async function detectTools(repoRoot: string): Promise<DetectedTools> {
   const s = spinner();
   s.start('Checking local CLI availability');
-  const [omni, genie, claude, codex] = await Promise.all([
+  const [omni, genie, claude, codex, docker] = await Promise.all([
     ensureAccessible('omni'),
     ensureAccessible('genie'),
     ensureAccessible('claude'),
     ensureAccessible('codex'),
+    ensureAccessible('docker'),
   ]);
   s.stop(
     [
@@ -359,9 +362,10 @@ async function detectTools(repoRoot: string): Promise<DetectedTools> {
       `Genie ${genie ? 'found' : 'missing'}`,
       `Claude CLI ${claude ? 'found' : 'missing'}`,
       `Codex CLI ${codex ? 'found' : 'missing'}`,
+      `Docker ${docker ? 'found' : 'missing'}`,
     ].join(', '),
   );
-  return { omni, genie, claude, codex };
+  return { omni, genie, claude, codex, docker };
 }
 
 async function bootstrapIfNeeded(repoRoot: string, detected: DetectedTools) {
@@ -478,8 +482,86 @@ async function chooseProviders(state: InstallerState, detected: DetectedTools) {
   state.values.NAMASTEX_LLM_FALLBACKS = fallbacks.join(',');
 }
 
+async function detectSetupRuntime(
+  repoRoot: string,
+  detected: DetectedTools,
+): Promise<'local' | 'docker'> {
+  if (!detected.docker) return 'local';
+  try {
+    const result = await runCommand('docker', ['compose', 'ps', '--format', 'json'], {
+      cwd: repoRoot,
+      quiet: true,
+    });
+    if (/"Service"\s*:\s*"(genie|omni)"[\s\S]*"State"\s*:\s*"running"/i.test(result.stdout)) {
+      return 'docker';
+    }
+  } catch {
+    return 'local';
+  }
+  return 'local';
+}
+
+async function offerProviderAuthLaunch(
+  repoRoot: string,
+  state: InstallerState,
+  detected: DetectedTools,
+): Promise<void> {
+  const providers = [
+    state.values.NAMASTEX_LLM_PRIMARY,
+    ...(state.values.NAMASTEX_LLM_FALLBACKS || '').split(','),
+  ]
+    .map((provider) => provider.trim())
+    .filter(Boolean);
+  const mode = await detectSetupRuntime(repoRoot, detected);
+
+  const needsClaude =
+    providers.includes('claude-cli') &&
+    ((mode === 'local' && !detected.claude) ||
+      (mode === 'docker' &&
+        !state.values.CLAUDE_CODE_OAUTH_TOKEN &&
+        !state.values.ANTHROPIC_API_KEY));
+  if (needsClaude) {
+    const shouldLaunch = await confirm({
+      message: `Launch Claude login terminal for ${mode} runtime?`,
+      initialValue: true,
+    });
+    if (isCancel(shouldLaunch)) process.exit(1);
+    if (shouldLaunch) {
+      await runCommand('npm', ['run', 'auth:claude', '--', '--mode', mode], { cwd: repoRoot });
+    }
+  }
+
+  const needsCodex = providers.includes('codex-cli') && (mode === 'docker' || !detected.codex);
+  if (needsCodex) {
+    const shouldLaunch = await confirm({
+      message: `Launch Codex login terminal for ${mode} runtime?`,
+      initialValue: true,
+    });
+    if (isCancel(shouldLaunch)) process.exit(1);
+    if (shouldLaunch) {
+      await runCommand('npm', ['run', 'auth:codex', '--', '--mode', mode], { cwd: repoRoot });
+    }
+  }
+
+  const needsKimi =
+    providers.some((provider) => provider.includes('kimi')) &&
+    !state.values.OPENROUTER_API_KEY &&
+    !state.values.MOONSHOT_API_KEY;
+  if (needsKimi) {
+    const shouldConfigure = await confirm({
+      message: 'Kimi is selected but no OpenRouter/Moonshot key is configured. Configure it now?',
+      initialValue: true,
+    });
+    if (isCancel(shouldConfigure)) process.exit(1);
+    if (shouldConfigure) {
+      await runCommand('npm', ['run', 'auth:kimi'], { cwd: repoRoot });
+    }
+  }
+}
+
 async function bootstrapAgent(repoRoot: string) {
   await runCommand('genie', ['setup', '--quick'], { cwd: repoRoot });
+  await configureGenieOmniExecutor();
   const agentDir = resolve(repoRoot, 'agents', 'namastex-research');
   if (await pathExists(agentDir)) {
     note(`Using existing agent directory: ${agentDir}`, 'Agent');
@@ -487,6 +569,54 @@ async function bootstrapAgent(repoRoot: string) {
     await runCommand('genie', ['init', 'agent', 'namastex-research'], { cwd: repoRoot });
   }
   await runCommand('genie', ['dir', 'sync'], { cwd: repoRoot });
+}
+
+async function readJsonFile(path: string): Promise<Record<string, unknown>> {
+  try {
+    const contents = await readFile(path, 'utf8');
+    const parsed = JSON.parse(contents);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed)
+      ? (parsed as Record<string, unknown>)
+      : {};
+  } catch {
+    return {};
+  }
+}
+
+async function configureGenieOmniExecutor(): Promise<void> {
+  const genieConfigPath = resolve(homedir(), '.genie', 'config.json');
+  const omniConfigPath = resolve(homedir(), '.omni', 'config.json');
+  const [genieConfig, omniConfig] = await Promise.all([
+    readJsonFile(genieConfigPath),
+    readJsonFile(omniConfigPath),
+  ]);
+  const currentOmni =
+    genieConfig.omni && typeof genieConfig.omni === 'object' && !Array.isArray(genieConfig.omni)
+      ? (genieConfig.omni as Record<string, unknown>)
+      : {};
+  const apiUrl =
+    typeof currentOmni.apiUrl === 'string'
+      ? currentOmni.apiUrl
+      : typeof omniConfig.apiUrl === 'string'
+        ? omniConfig.apiUrl
+        : 'http://localhost:8882';
+  const nextOmni: Record<string, unknown> = {
+    ...currentOmni,
+    apiUrl,
+    executor: 'sdk',
+  };
+  if (!nextOmni.apiKey && typeof omniConfig.apiKey === 'string') {
+    nextOmni.apiKey = omniConfig.apiKey;
+  }
+  const nextConfig = {
+    ...genieConfig,
+    omni: nextOmni,
+  };
+  await writeFile(genieConfigPath, `${JSON.stringify(nextConfig, null, 2)}\n`, 'utf8');
+  note(
+    'Configured Genie Omni bridge to use SDK executor so restarts do not block on Claude tmux permission prompts.',
+    'Genie',
+  );
 }
 
 async function startServices(repoRoot: string) {
@@ -632,6 +762,7 @@ async function main() {
   await configureSecrets(state, detected);
   await chooseProviders(state, detected);
   await writeEnvFile(envPath, state.values);
+  await offerProviderAuthLaunch(repoRoot, state, detected);
 
   await bootstrapAgent(repoRoot);
   await startServices(repoRoot);
