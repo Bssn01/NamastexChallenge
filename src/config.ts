@@ -1,23 +1,50 @@
+import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { resolveConversationIdentity } from './lib/conversation.js';
 import type { AppConfig } from './types.js';
 
+function parseDotenv(contents: string): Record<string, string> {
+  return contents
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter((line) => line && !line.startsWith('#'))
+    .reduce<Record<string, string>>((acc, line) => {
+      const separator = line.indexOf('=');
+      if (separator < 0) return acc;
+      acc[line.slice(0, separator)] = line.slice(separator + 1);
+      return acc;
+    }, {});
+}
+
+function loadProcessEnvWithDotenv(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  if (env !== process.env) return env;
+  const envPath = resolve(process.cwd(), '.env');
+  if (!existsSync(envPath)) return env;
+  return {
+    ...parseDotenv(readFileSync(envPath, 'utf8')),
+    ...env,
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const repoRoot = env.NAMASTEX_REPO_ROOT ? resolve(env.NAMASTEX_REPO_ROOT) : process.cwd();
-  const conversation = resolveConversationIdentity(env);
-  const storeDriver = env.NAMASTEX_STORE_DRIVER === 'postgres' ? 'postgres' : 'json';
-  const databaseUrl = env.NAMASTEX_DATABASE_URL || env.DATABASE_URL;
+  const effectiveEnv = loadProcessEnvWithDotenv(env);
+  const repoRoot = effectiveEnv.NAMASTEX_REPO_ROOT
+    ? resolve(effectiveEnv.NAMASTEX_REPO_ROOT)
+    : process.cwd();
+  const conversation = resolveConversationIdentity(effectiveEnv);
+  const storeDriver = effectiveEnv.NAMASTEX_STORE_DRIVER === 'postgres' ? 'postgres' : 'json';
+  const databaseUrl = effectiveEnv.NAMASTEX_DATABASE_URL || effectiveEnv.DATABASE_URL;
 
   const config: AppConfig = {
     repoRoot,
-    repoCacheRoot: env.NAMASTEX_REPO_CACHE_DIR
-      ? resolve(repoRoot, env.NAMASTEX_REPO_CACHE_DIR)
+    repoCacheRoot: effectiveEnv.NAMASTEX_REPO_CACHE_DIR
+      ? resolve(repoRoot, effectiveEnv.NAMASTEX_REPO_CACHE_DIR)
       : resolve(repoRoot, 'data', 'repos'),
-    storePath: env.NAMASTEX_STORE_PATH
-      ? resolve(repoRoot, env.NAMASTEX_STORE_PATH)
+    storePath: effectiveEnv.NAMASTEX_STORE_PATH
+      ? resolve(repoRoot, effectiveEnv.NAMASTEX_STORE_PATH)
       : resolve(repoRoot, 'data', 'genie-research-store.json'),
-    storeOutboxPath: env.NAMASTEX_OUTBOX_PATH
-      ? resolve(repoRoot, env.NAMASTEX_OUTBOX_PATH)
+    storeOutboxPath: effectiveEnv.NAMASTEX_OUTBOX_PATH
+      ? resolve(repoRoot, effectiveEnv.NAMASTEX_OUTBOX_PATH)
       : resolve(repoRoot, 'data', 'genie-outbox.jsonl'),
     storeDriver,
     databaseUrl,
@@ -26,34 +53,34 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     conversationSource: conversation.source,
     omniInstanceId: conversation.instanceId,
     omniChatId: conversation.chatId,
-    hackerNewsApiBase: env.HACKERNEWS_API_BASE || 'https://hn.algolia.com/api/v1',
-    hackerNewsUserAgent: env.HACKERNEWS_USER_AGENT || 'NamastexChallenge/0.1.0',
-    defaultGithubOwner: env.GITHUB_OWNER,
-    defaultGithubRepo: env.GITHUB_REPO,
-    githubToken: env.GITHUB_TOKEN,
-    githubApiBase: env.GITHUB_API_BASE || 'https://api.github.com',
+    hackerNewsApiBase: effectiveEnv.HACKERNEWS_API_BASE || 'https://hn.algolia.com/api/v1',
+    hackerNewsUserAgent: effectiveEnv.HACKERNEWS_USER_AGENT || 'NamastexChallenge/0.1.0',
+    defaultGithubOwner: effectiveEnv.GITHUB_OWNER,
+    defaultGithubRepo: effectiveEnv.GITHUB_REPO,
+    githubToken: effectiveEnv.GITHUB_TOKEN,
+    githubApiBase: effectiveEnv.GITHUB_API_BASE || 'https://api.github.com',
     llm: {
-      primary: env.NAMASTEX_LLM_PRIMARY || 'claude-cli',
-      fallbacks: (env.NAMASTEX_LLM_FALLBACKS || 'codex-cli')
+      primary: effectiveEnv.NAMASTEX_LLM_PRIMARY || 'claude-cli',
+      fallbacks: (effectiveEnv.NAMASTEX_LLM_FALLBACKS || 'codex-cli')
         .split(',')
         .map((value) => value.trim())
         .filter(Boolean),
-      openrouterKey: env.OPENROUTER_API_KEY,
-      anthropicKey: env.ANTHROPIC_API_KEY,
-      xaiKey: env.XAI_API_KEY,
-      moonshotKey: env.MOONSHOT_API_KEY,
+      openrouterKey: effectiveEnv.OPENROUTER_API_KEY,
+      anthropicKey: effectiveEnv.ANTHROPIC_API_KEY,
+      xaiKey: effectiveEnv.XAI_API_KEY,
+      moonshotKey: effectiveEnv.MOONSHOT_API_KEY,
     },
-    xSearchModel: env.X_SEARCH_MODEL || env.GROK_MODEL || 'grok-4.20-reasoning',
-    xSearchLimit: Number(env.X_SEARCH_LIMIT || '5'),
-    fieldTheoryBin: env.FIELDTHEORY_BIN,
-    fieldTheoryDataDir: env.FT_DATA_DIR
-      ? resolve(repoRoot, env.FT_DATA_DIR)
+    xSearchModel: effectiveEnv.X_SEARCH_MODEL || effectiveEnv.GROK_MODEL || 'grok-4.20-reasoning',
+    xSearchLimit: Number(effectiveEnv.X_SEARCH_LIMIT || '5'),
+    fieldTheoryBin: effectiveEnv.FIELDTHEORY_BIN,
+    fieldTheoryDataDir: effectiveEnv.FT_DATA_DIR
+      ? resolve(repoRoot, effectiveEnv.FT_DATA_DIR)
       : resolve(repoRoot, 'data', 'fieldtheory'),
-    genieBrainBin: env.GENIE_BRAIN_BIN || 'genie',
-    genieBrainIngestDir: env.GENIE_BRAIN_INGEST_DIR
-      ? resolve(repoRoot, env.GENIE_BRAIN_INGEST_DIR)
+    genieBrainBin: effectiveEnv.GENIE_BRAIN_BIN || 'genie',
+    genieBrainIngestDir: effectiveEnv.GENIE_BRAIN_INGEST_DIR
+      ? resolve(repoRoot, effectiveEnv.GENIE_BRAIN_INGEST_DIR)
       : resolve(repoRoot, 'data', 'brain-ingest'),
-    genieBrainSearchLimit: Number(env.GENIE_BRAIN_SEARCH_LIMIT || '5'),
+    genieBrainSearchLimit: Number(effectiveEnv.GENIE_BRAIN_SEARCH_LIMIT || '5'),
   };
 
   const missing: string[] = [];

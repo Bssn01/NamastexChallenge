@@ -22,7 +22,18 @@ export interface GitHubLabReport {
   notes: string[];
 }
 
+export interface GitHubRepositorySummary {
+  fullName: string;
+  private: boolean;
+  archived: boolean;
+  defaultBranch?: string;
+  htmlUrl: string;
+  description?: string;
+  updatedAt?: string;
+}
+
 export interface GitHubLabAdapter {
+  listUserRepositories(limit?: number): Promise<GitHubRepositorySummary[]>;
   validateRepository(target?: string): Promise<GitHubLabReport>;
   fetchReadme(target?: string): Promise<string>;
   searchCode(query: string, target?: string): Promise<ResearchSource[]>;
@@ -209,8 +220,55 @@ async function realSearchCode(
   }));
 }
 
+async function realUserRepositories(
+  options: GitHubLabAdapterOptions,
+  limit: number,
+): Promise<GitHubRepositorySummary[]> {
+  if (!options.githubToken) return [];
+  const url = new URL(`${options.githubApiBase}/user/repos`);
+  url.searchParams.set('per_page', String(Math.min(Math.max(limit, 1), 100)));
+  url.searchParams.set('sort', 'updated');
+  url.searchParams.set('affiliation', 'owner,collaborator,organization_member');
+
+  const response = await fetch(url, {
+    headers: {
+      Authorization: `Bearer ${options.githubToken}`,
+      Accept: 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28',
+    },
+  });
+  if (!response.ok) return [];
+
+  return (
+    (await response.json()) as Array<{
+      full_name?: string;
+      private?: boolean;
+      archived?: boolean;
+      default_branch?: string;
+      html_url?: string;
+      description?: string | null;
+      updated_at?: string;
+    }>
+  )
+    .filter((repo) => repo.full_name && repo.html_url)
+    .slice(0, limit)
+    .map((repo) => ({
+      fullName: repo.full_name as string,
+      private: Boolean(repo.private),
+      archived: Boolean(repo.archived),
+      defaultBranch: repo.default_branch,
+      htmlUrl: repo.html_url as string,
+      description: repo.description || undefined,
+      updatedAt: repo.updated_at,
+    }));
+}
+
 export function createGitHubLabAdapter(options: GitHubLabAdapterOptions): GitHubLabAdapter {
   return {
+    async listUserRepositories(limit = 10): Promise<GitHubRepositorySummary[]> {
+      return realUserRepositories(options, limit);
+    },
+
     async normalizeTarget(target?: string): Promise<GitHubTargetResolution> {
       return resolvedTargetOrDefault(options, target);
     },

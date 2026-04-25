@@ -4,6 +4,9 @@ import { appendJsonLine, readJsonFile, writeJsonFile } from '../lib/json.js';
 import type {
   DossierResource,
   IdeaDossier,
+  MonitorCadence,
+  MonitorProvider,
+  MonitorSubscription,
   RepoAssessment,
   RepoTargetRef,
   ResearchRecord,
@@ -27,6 +30,7 @@ export interface GenieStoreSnapshot {
   sessionId: string;
   updatedAt: string;
   dossiers: IdeaDossier[];
+  monitorSubscriptions: MonitorSubscription[];
   records: ResearchRecord[];
   tasks: GenieTaskEvent[];
   events: GenieTaskEvent[];
@@ -71,12 +75,27 @@ export interface SaveRepoAssessmentInput {
   createdAt?: string;
 }
 
+export interface UpsertMonitorSubscriptionInput {
+  instanceId?: string;
+  chatId?: string;
+  cadence: MonitorCadence;
+  time: string;
+  timezone?: string;
+  topics: string[];
+  niches?: string[];
+  providers: MonitorProvider[];
+  topN: number;
+  enabled?: boolean;
+}
+
 export interface GenieResearchStore {
   createDossier(input: CreateDossierInput): Promise<IdeaDossier>;
   appendResearchRun(input: AppendResearchRunInput): Promise<ResearchRun>;
   saveRepoAssessment(input: SaveRepoAssessmentInput): Promise<RepoAssessment>;
   listRecentDossiers(limit?: number): Promise<IdeaDossier[]>;
   getDossier(dossierId: string): Promise<IdeaDossier | undefined>;
+  upsertMonitorSubscription(input: UpsertMonitorSubscriptionInput): Promise<MonitorSubscription>;
+  listMonitorSubscriptions(): Promise<MonitorSubscription[]>;
   recordResearch(input: {
     query: string;
     summary: string;
@@ -108,6 +127,7 @@ const emptySnapshot = (sessionId: string): GenieStoreSnapshot => ({
   sessionId,
   updatedAt: new Date().toISOString(),
   dossiers: [],
+  monitorSubscriptions: [],
   records: [],
   tasks: [],
   events: [],
@@ -345,6 +365,11 @@ function normalizeSnapshot(
       dossiers: raw.dossiers.map((dossier) =>
         normalizeDossier(dossier, sessionId, conversationKey),
       ),
+      monitorSubscriptions: Array.isArray(
+        (raw as { monitorSubscriptions?: unknown }).monitorSubscriptions,
+      )
+        ? (raw as { monitorSubscriptions: MonitorSubscription[] }).monitorSubscriptions || []
+        : [],
       records: Array.isArray(raw.records) ? raw.records : [],
       tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
       events: Array.isArray(raw.events) ? raw.events : [],
@@ -356,6 +381,7 @@ function normalizeSnapshot(
     sessionId: raw.sessionId || sessionId,
     updatedAt: raw.updatedAt || new Date().toISOString(),
     dossiers: Array.isArray(raw.records) ? raw.records.map(migrateRecordToDossier) : [],
+    monitorSubscriptions: [],
     records: [],
     tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
     events: Array.isArray(raw.events) ? raw.events : [],
@@ -674,6 +700,50 @@ export function createGenieResearchStore(options: GenieResearchStoreOptions): Ge
       const snapshot = await loadState();
       return snapshot.dossiers.find(
         (dossier) => dossier.id === dossierId && isCurrentConversation(dossier),
+      );
+    },
+
+    async upsertMonitorSubscription(input): Promise<MonitorSubscription> {
+      const snapshot = await loadState();
+      const now = new Date().toISOString();
+      const existingIndex = snapshot.monitorSubscriptions.findIndex(
+        (monitor) =>
+          monitor.conversationKey === currentConversationKey && monitor.cadence === input.cadence,
+      );
+      const existing =
+        existingIndex >= 0 ? snapshot.monitorSubscriptions[existingIndex] : undefined;
+      const monitor: MonitorSubscription = {
+        id: existing?.id || randomUUID(),
+        conversationKey: currentConversationKey,
+        sessionId: currentSessionId,
+        instanceId: input.instanceId,
+        chatId: input.chatId,
+        cadence: input.cadence,
+        time: input.time,
+        timezone: input.timezone,
+        topics: [...input.topics],
+        niches: input.niches ? [...input.niches] : [],
+        providers: [...input.providers],
+        topN: input.topN,
+        enabled: input.enabled ?? true,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        lastSentAt: existing?.lastSentAt,
+      };
+
+      if (existingIndex >= 0) {
+        snapshot.monitorSubscriptions[existingIndex] = monitor;
+      } else {
+        snapshot.monitorSubscriptions.unshift(monitor);
+      }
+      await saveState(snapshot);
+      return monitor;
+    },
+
+    async listMonitorSubscriptions(): Promise<MonitorSubscription[]> {
+      const snapshot = await loadState();
+      return snapshot.monitorSubscriptions.filter(
+        (monitor) => monitor.conversationKey === currentConversationKey,
       );
     },
 

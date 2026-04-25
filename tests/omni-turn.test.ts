@@ -59,7 +59,7 @@ test('api turn prompt describes json format', () => {
   assert.match(prompt, /WhatsApp/);
   assert.match(
     prompt,
-    /Supported intents: research, wiki, sources, repo, bookmarks, reset, clarify/,
+    /Supported intents: greeting, capabilities, github-repos, saved-topics, monitor, research, wiki, sources, repo, bookmarks, reset, clarify/,
   );
   assert.match(prompt, /JSON/);
   assert.match(prompt, /chunks/);

@@ -13,6 +13,9 @@ O domínio escolhido é pesquisa e validação prática de ideias. A conversa é
 | Fontes e evidências | `mostra as fontes desse dossiê` |
 | Validação contra um repositório GitHub | `testa essa ideia no repo https://github.com/openai/codex` |
 | Busca em bookmarks locais, quando FieldTheory está configurado | `procura nos meus bookmarks sobre embeddings` |
+| Explicação de capacidades | `o que você pode fazer?` |
+| Tópicos e nichos salvos | `quais tópicos e nichos tenho salvos?` |
+| Update news recorrente de fontes externas | `me manda todo dia às 9 top 5 tweets, Hacker News e arXiv sobre agentes B2B` |
 | Reset da sessão atual | `reseta essa conversa` |
 
 As ferramentas reais usadas pelo agente incluem GitHub API, checkout/materialização de repositórios, Repomix, Hacker News, arXiv, X/Grok quando configurado, FieldTheory opcional e Genie Brain opcional.
@@ -149,9 +152,9 @@ genie setup --quick
 genie init agent namastex-research
 genie dir sync
 omni start
-genie serve start --daemon
+genie serve start --daemon --headless
 omni instances create --name "namastex-wa" --channel whatsapp-baileys
-omni instances qr <instance-id> --watch
+omni instances qr <instance-id>
 omni connect <instance-id> namastex-research --mode turn-based
 ```
 
@@ -232,6 +235,17 @@ Smoke local:
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "pesquisa essa ideia de agentes de whatsapp"
 NAMASTEX_OMNI_DELIVERY=stdout npm run omni:turn -- "testa essa ideia do meu wiki no repo https://github.com/openai/codex"
 ```
+
+Update news recorrente local:
+
+```bash
+npm run update-news:due
+```
+
+O comando acima varre assinaturas salvas pelo WhatsApp e envia pelo Omni quando estiverem no
+horário. Para envio automático, chame esse comando por `genie schedule`, cron ou outro agendador
+do host local. O `npm run setup` pode instalar uma entrada idempotente no crontab para rodar essa
+checagem a cada 5 minutos.
 
 ## Estrutura relevante
 

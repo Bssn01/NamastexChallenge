@@ -148,6 +148,24 @@ function makeResearchServices() {
       },
       listRecentDossiers: async () => [dossier],
       getDossier: async () => dossier,
+      upsertMonitorSubscription: async (input) => ({
+        id: 'monitor-1',
+        conversationKey: 'local:test',
+        sessionId: 'session-1',
+        instanceId: input.instanceId,
+        chatId: input.chatId,
+        cadence: input.cadence,
+        time: input.time,
+        timezone: input.timezone,
+        topics: [...input.topics],
+        niches: input.niches ? [...input.niches] : [],
+        providers: [...input.providers],
+        topN: input.topN,
+        enabled: input.enabled ?? true,
+        createdAt: '2026-04-25T00:00:00.000Z',
+        updatedAt: '2026-04-25T00:00:00.000Z',
+      }),
+      listMonitorSubscriptions: async () => [],
       recordResearch: async () => {
         throw new Error('Unexpected recordResearch call.');
       },
@@ -161,6 +179,7 @@ function makeResearchServices() {
         sessionId: 'session-1',
         updatedAt: new Date().toISOString(),
         dossiers: [dossier],
+        monitorSubscriptions: [],
         records: [],
         tasks: [],
         events: [],
@@ -193,6 +212,17 @@ function makeResearchServices() {
       },
     },
     github: {
+      listUserRepositories: async () => [
+        {
+          fullName: 'bassani/namastex-challenge',
+          private: true,
+          archived: false,
+          defaultBranch: 'main',
+          htmlUrl: 'https://github.com/bassani/namastex-challenge',
+          description: 'WhatsApp research agent',
+          updatedAt: '2026-04-25T00:00:00Z',
+        },
+      ],
       validateRepository: async () => {
         throw new Error('Unexpected GitHub validation call.');
       },
@@ -269,6 +299,66 @@ test('routeWhatsappMessage dispatches natural research turns', async () => {
   assert.equal(calls.grok[0], 'agentes de whatsapp');
   assert.equal(calls.brainIngest[0], 'dossier-1');
   assert.match(reply.chunks.join(' '), /Já salvei isso como dossiê: dossier-1/);
+});
+
+test('routeWhatsappMessage greets and shows capabilities for greeting-only turns', async () => {
+  const { services, calls } = makeResearchServices();
+  const reply = await routeWhatsappMessage('oi, tudo bem?', services);
+
+  assert.equal(reply.command, 'greeting');
+  assert.equal(reply.metadata?.intent, 'greeting');
+  assert.equal(reply.metadata?.source, 'natural-language');
+  assert.match(reply.chunks.join('\n'), /Oi! Sou o agente de pesquisa da Namastex/);
+  assert.match(reply.chunks.join('\n'), /pesquisar e validar uma ideia/);
+  assert.equal(calls.arxiv.length, 0);
+  assert.equal(calls.grok.length, 0);
+});
+
+test('routeWhatsappMessage explains capabilities from natural help asks', async () => {
+  const { services } = makeResearchServices();
+  const reply = await routeWhatsappMessage('o que voce pode fazer?', services);
+
+  assert.equal(reply.command, 'capabilities');
+  assert.match(reply.chunks.join('\n'), /update news diário ou semanal/);
+  assert.match(reply.chunks.join('\n'), /testar uma ideia contra um repo/);
+});
+
+test('routeWhatsappMessage lists accessible GitHub repositories', async () => {
+  const { services } = makeResearchServices();
+  const reply = await routeWhatsappMessage('quais sao meus repos?', services);
+
+  assert.equal(reply.command, 'github-repos');
+  assert.equal(reply.metadata?.intent, 'github-repos');
+  assert.match(reply.chunks.join('\n'), /bassani\/namastex-challenge/);
+  assert.match(reply.chunks.join('\n'), /owner\/repo/);
+});
+
+test('routeWhatsappMessage lists saved topics and niches', async () => {
+  const { services, dossier } = makeResearchServices();
+  dossier.topicGroups.push({
+    id: 'niche-1',
+    label: 'Niche',
+    kind: 'niche',
+    topics: ['suporte financeiro B2B'],
+  });
+
+  const reply = await routeWhatsappMessage('quais topicos e nichos tenho salvos?', services);
+
+  assert.equal(reply.command, 'saved-topics');
+  assert.match(reply.chunks.join('\n'), /Agentes de WhatsApp/);
+  assert.match(reply.chunks.join('\n'), /suporte financeiro B2B/);
+});
+
+test('routeWhatsappMessage saves daily monitor preferences', async () => {
+  const { services } = makeResearchServices();
+  const reply = await routeWhatsappMessage(
+    'me manda todo dia às 9 top 5 tweets, hackernews e arxiv sobre agentes B2B',
+    services,
+  );
+
+  assert.equal(reply.command, 'monitor');
+  assert.match(reply.chunks.join('\n'), /update news diário às 09:00/);
+  assert.match(reply.chunks.join('\n'), /x, hackernews, arxiv/);
 });
 
 test('routeWhatsappMessage preserves legacy slash commands', async () => {

@@ -88,7 +88,7 @@ export function buildCodexTurnPrompt(message: string): string {
 export function buildApiTurnPrompt(message: string): string {
   return [
     'You are the Namastex research agent for WhatsApp.',
-    'Resolve natural-language WhatsApp intents deterministically first. Supported intents: research, wiki, sources, repo, bookmarks, reset, clarify.',
+    'Resolve natural-language WhatsApp intents deterministically first. Supported intents: greeting, capabilities, github-repos, saved-topics, monitor, research, wiki, sources, repo, bookmarks, reset, clarify.',
     'Slash commands are accepted only for backward compatibility and should not be presented as the interface.',
     'Respond with a single JSON object in this exact shape: {"command":"<intent>","chunks":["<msg>"],"metadata":{}}.',
     'chunks is an array of short WhatsApp message strings (max ~900 chars each).',

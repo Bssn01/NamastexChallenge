@@ -84,6 +84,28 @@ export interface RepoAssessment {
   notes: string[];
 }
 
+export type MonitorCadence = 'daily' | 'weekly';
+export type MonitorProvider = 'x' | 'hackernews' | 'arxiv';
+
+export interface MonitorSubscription {
+  id: string;
+  conversationKey: string;
+  sessionId: string;
+  instanceId?: string;
+  chatId?: string;
+  cadence: MonitorCadence;
+  time: string;
+  timezone?: string;
+  topics: string[];
+  niches: string[];
+  providers: MonitorProvider[];
+  topN: number;
+  enabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+  lastSentAt?: string;
+}
+
 export interface IdeaDossier {
   id: string;
   sessionId: string;

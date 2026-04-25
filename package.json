@@ -23,6 +23,8 @@
     "deps:bootstrap": "bash scripts/bootstrap-deps.sh",
     "setup": "node --import tsx src/installer/index.ts",
     "local:turn": "node --import tsx scripts/local-turn.ts",
+    "update-news:due": "node --import tsx scripts/update-news-due.ts",
+    "digest:due": "npm run update-news:due",
     "omni:turn": "node --import tsx scripts/omni-turn.ts",
     "cli": "node --import tsx src/cli.ts"
   },

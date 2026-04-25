@@ -1,6 +1,11 @@
 import { normalizeWhitespace } from './text.js';
 
 export type WhatsappIntent =
+  | 'greeting'
+  | 'capabilities'
+  | 'github-repos'
+  | 'saved-topics'
+  | 'monitor'
   | 'research'
   | 'wiki'
   | 'sources'
@@ -52,6 +57,22 @@ const BOOKMARK_PATTERNS = [
   /\bprocura(?:r)?\s+(?:nos meus\s+)?bookmarks?\b/i,
 ];
 
+const CAPABILITIES_PATTERNS = [
+  /\b(o que voce pode fazer|o que você pode fazer|como voce pode ajudar|como você pode ajudar|quais comandos|ajuda|help)\b/i,
+  /\b(?:me explica|explica).*\b(?:funciona|capacidades|op[cç][oõ]es)\b/i,
+];
+
+const SAVED_TOPICS_PATTERNS = [
+  /\b(?:quais|lista|mostra|ver)\b.*\b(?:topicos|t[oó]picos|nichos|temas)\b.*\b(?:salvos?|guardados?|gravados?)\b/i,
+  /\b(?:topicos|t[oó]picos|nichos|temas)\b.*\b(?:salvos?|guardados?|gravados?)\b/i,
+  /\bo que (?:eu )?(?:tenho|temos) salvo\b/i,
+];
+
+const MONITOR_PATTERNS = [
+  /\b(?:todo dia|diariamente|daily|semanalmente|weekly|toda semana)\b/i,
+  /\b(?:me manda|me envie|manda|envia|monitora|acompanha|notifica|atualiza)\b.*\b(?:noticias|novidades|posts|tweets|hacker ?news|arxiv|fontes|top)\b/i,
+];
+
 const BOOKMARK_QUERY_PATTERNS = [
   /^(?:procura(?:r)?\s+(?:nos meus\s+)?)bookmarks?(?:\s+(?:sobre|de|do|da|em|para))?\s+(.+)$/i,
   /^(?:procura(?:r)?\s+(?:nos meus\s+)?(?:bookmarks?|marcadores?|favoritos?))\s+(.+)$/i,
@@ -71,6 +92,14 @@ const WIKI_PATTERNS = [
 const RESEARCH_PATTERNS = [
   /\b(pesquisa(?:r)?|procura(?:r)?|busca(?:r)?|investiga(?:r)?|analisa(?:r)?|valida(?:r)?|estuda(?:r)?)\b/i,
   /\b(mercado|ideia|hip[oó]tese|tese|oportunidade|sinal|sinais|produto)\b/i,
+];
+
+const GREETING_ONLY_PATTERN =
+  /^(?:oi+|ol[aá]+|opa|e ai|e aí|bom dia|boa tarde|boa noite|hello|hi|hey)(?:[!.\s,]*(?:tudo bem|td bem|beleza|blz|como vai|pode me ajudar|me ajuda|ajuda)?)?[!.\s,?]*$/i;
+
+const GITHUB_REPOS_PATTERNS = [
+  /\b(?:quais|lista|mostra|ver)\b.*\b(?:meus|minhas)\b.*\brepos?(?:itorios?|it[oó]rios)?\b/i,
+  /\b(?:meus|minhas)\b.*\brepos?(?:itorios?|it[oó]rios)?\b/i,
 ];
 
 function stripAccents(value: string): string {
@@ -180,6 +209,46 @@ export function resolveIntent(text: string, options: ResolveIntentOptions = {}):
 
   const normalized = normalizeForMatch(trimmed);
   const repoTarget = extractRepoTarget(trimmed);
+
+  if (GREETING_ONLY_PATTERN.test(normalized)) {
+    return {
+      kind: 'greeting',
+      payload: trimmed,
+      source: 'natural-language',
+    };
+  }
+
+  if (CAPABILITIES_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      kind: 'capabilities',
+      payload: trimmed,
+      source: 'natural-language',
+    };
+  }
+
+  if (GITHUB_REPOS_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      kind: 'github-repos',
+      payload: trimmed,
+      source: 'natural-language',
+    };
+  }
+
+  if (SAVED_TOPICS_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      kind: 'saved-topics',
+      payload: trimmed,
+      source: 'natural-language',
+    };
+  }
+
+  if (MONITOR_PATTERNS.some((pattern) => pattern.test(normalized))) {
+    return {
+      kind: 'monitor',
+      payload: trimmed,
+      source: 'natural-language',
+    };
+  }
 
   if (RESET_PATTERNS.some((pattern) => pattern.test(normalized))) {
     return {

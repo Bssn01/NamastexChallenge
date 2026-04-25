@@ -3,6 +3,7 @@ import postgres from 'postgres';
 import { newSessionId } from '../lib/conversation.js';
 import type {
   IdeaDossier,
+  MonitorSubscription,
   RepoAssessment,
   ResearchRecord,
   ResearchRun,
@@ -72,6 +73,11 @@ function asDossier(payload: unknown, conversationKey: string, sessionId: string)
     repoAssessments: sortByCreatedAtDesc(dossier.repoAssessments || []),
     notes: dossier.notes || [],
   };
+}
+
+function monitorSubscriptionsFromMetadata(metadata: unknown): MonitorSubscription[] {
+  const value = metadata as { monitorSubscriptions?: MonitorSubscription[] } | undefined;
+  return Array.isArray(value?.monitorSubscriptions) ? value.monitorSubscriptions : [];
 }
 
 async function migrate(sql: Sql): Promise<void> {
@@ -193,6 +199,27 @@ export function createPostgresResearchStore(
     return payload ? asDossier(payload, options.conversationKey, currentSessionId) : undefined;
   }
 
+  async function readConversationMetadata(): Promise<Record<string, unknown>> {
+    await ensureReady();
+    const rows = await sql<{ metadata: Record<string, unknown> }[]>`
+      SELECT metadata
+      FROM conversation_sessions
+      WHERE conversation_key = ${options.conversationKey}
+      LIMIT 1
+    `;
+    return rows[0]?.metadata || {};
+  }
+
+  async function writeConversationMetadata(metadata: Record<string, unknown>): Promise<void> {
+    await ensureReady();
+    await sql`
+      UPDATE conversation_sessions
+      SET metadata = ${sql.json(metadata as never)},
+          updated_at = now()
+      WHERE conversation_key = ${options.conversationKey}
+    `;
+  }
+
   return {
     async createDossier(input: CreateDossierInput): Promise<IdeaDossier> {
       await ensureReady();
@@ -300,6 +327,49 @@ export function createPostgresResearchStore(
 
     getDossier: getDossierInternal,
 
+    async upsertMonitorSubscription(input): Promise<MonitorSubscription> {
+      const metadata = await readConversationMetadata();
+      const monitors = monitorSubscriptionsFromMetadata(metadata);
+      const now = new Date().toISOString();
+      const existingIndex = monitors.findIndex(
+        (monitor) =>
+          monitor.conversationKey === options.conversationKey && monitor.cadence === input.cadence,
+      );
+      const existing = existingIndex >= 0 ? monitors[existingIndex] : undefined;
+      const monitor: MonitorSubscription = {
+        id: existing?.id || randomUUID(),
+        conversationKey: options.conversationKey,
+        sessionId: currentSessionId,
+        instanceId: input.instanceId,
+        chatId: input.chatId,
+        cadence: input.cadence,
+        time: input.time,
+        timezone: input.timezone,
+        topics: [...input.topics],
+        niches: input.niches ? [...input.niches] : [],
+        providers: [...input.providers],
+        topN: input.topN,
+        enabled: input.enabled ?? true,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+        lastSentAt: existing?.lastSentAt,
+      };
+      if (existingIndex >= 0) {
+        monitors[existingIndex] = monitor;
+      } else {
+        monitors.unshift(monitor);
+      }
+      await writeConversationMetadata({ ...metadata, monitorSubscriptions: monitors });
+      return monitor;
+    },
+
+    async listMonitorSubscriptions(): Promise<MonitorSubscription[]> {
+      const metadata = await readConversationMetadata();
+      return monitorSubscriptionsFromMetadata(metadata).filter(
+        (monitor) => monitor.conversationKey === options.conversationKey,
+      );
+    },
+
     async recordResearch(input): Promise<ResearchRecord> {
       const dossier = await this.createDossier({
         rawIdeaText: input.query,
@@ -363,6 +433,7 @@ export function createPostgresResearchStore(
         sessionId: currentSessionId,
         updatedAt: new Date().toISOString(),
         dossiers,
+        monitorSubscriptions: await this.listMonitorSubscriptions(),
         records: sortByCreatedAtDesc(
           dossiers.flatMap((dossier) =>
             dossier.researchRuns.map((researchRun) => toResearchRecord(dossier, researchRun)),

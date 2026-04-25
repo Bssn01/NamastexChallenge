@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
-import { access, readFile, rename, writeFile } from 'node:fs/promises';
+import { access, readFile, rename, stat, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   confirm,
@@ -28,6 +28,15 @@ interface DetectedTools {
   genie: boolean;
   claude: boolean;
   codex: boolean;
+}
+
+interface OmniInstance {
+  id?: string;
+  name?: string;
+  channel?: string;
+  status?: string;
+  agentId?: string | null;
+  isActive?: boolean;
 }
 
 async function ensureAccessible(command: string): Promise<boolean> {
@@ -74,6 +83,87 @@ async function runCommand(
   });
 }
 
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function markerBlock(command: string): string {
+  return [
+    '# BEGIN NAMASTEX UPDATE NEWS',
+    `*/5 * * * * ${command}`,
+    '# END NAMASTEX UPDATE NEWS',
+  ].join('\n');
+}
+
+async function readCrontab(): Promise<string> {
+  return new Promise((resolvePromise) => {
+    const child = spawn('crontab', ['-l'], { stdio: ['ignore', 'pipe', 'pipe'] });
+    let stdout = '';
+    child.stdout.on('data', (chunk) => {
+      stdout += String(chunk);
+    });
+    child.on('close', (code) => {
+      resolvePromise(code === 0 ? stdout : '');
+    });
+    child.on('error', () => resolvePromise(''));
+  });
+}
+
+async function writeCrontab(contents: string): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn('crontab', ['-'], { stdio: ['pipe', 'pipe', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => {
+      stderr += String(chunk);
+    });
+    child.on('error', reject);
+    child.on('close', (code) => {
+      if (code === 0) {
+        resolvePromise();
+        return;
+      }
+      reject(new Error(stderr.trim() || `crontab failed with exit code ${code}.`));
+    });
+    child.stdin.end(contents);
+  });
+}
+
+async function installUpdateNewsScheduler(repoRoot: string): Promise<void> {
+  const shouldInstall = await confirm({
+    message:
+      'Install local update news scheduler? It will check due WhatsApp updates every 5 minutes.',
+    initialValue: true,
+  });
+  if (isCancel(shouldInstall)) process.exit(1);
+  if (!shouldInstall) {
+    note('You can install it later by running `npm run setup` again.', 'Update news');
+    return;
+  }
+
+  const command = [
+    `cd ${shellQuote(repoRoot)}`,
+    'mkdir -p data',
+    '/usr/bin/env npm run update-news:due >> data/update-news-scheduler.log 2>&1',
+  ].join(' && ');
+  const block = markerBlock(command);
+  const current = await readCrontab();
+  const withoutOldBlock = current
+    .replace(/# BEGIN NAMASTEX UPDATE NEWS[\s\S]*?# END NAMASTEX UPDATE NEWS\n?/g, '')
+    .trimEnd();
+  const next = `${withoutOldBlock ? `${withoutOldBlock}\n\n` : ''}${block}\n`;
+  await writeCrontab(next);
+  note(
+    [
+      'Installed crontab entry:',
+      '',
+      block,
+      '',
+      'Logs will go to data/update-news-scheduler.log.',
+    ].join('\n'),
+    'Update news scheduler',
+  );
+}
+
 function parseEnvFile(contents: string): Record<string, string> {
   return contents
     .split(/\r?\n/)
@@ -104,6 +194,31 @@ async function readEnvFile(envPath: string): Promise<Record<string, string>> {
   }
 }
 
+async function pathExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function mergeProcessEnvFallbacks(values: Record<string, string>): Record<string, string> {
+  const merged = { ...values };
+  for (const key of [
+    'GITHUB_TOKEN',
+    'ANTHROPIC_API_KEY',
+    'OPENROUTER_API_KEY',
+    'XAI_API_KEY',
+    'MOONSHOT_API_KEY',
+  ]) {
+    if (!merged[key] && process.env[key]) {
+      merged[key] = String(process.env[key]);
+    }
+  }
+  return merged;
+}
+
 async function writeEnvFile(envPath: string, values: Record<string, string>): Promise<void> {
   const tempPath = `${envPath}.${randomUUID()}.tmp`;
   await writeFile(tempPath, serializeEnv(values), 'utf8');
@@ -117,19 +232,32 @@ async function maybePromptSecret(
   required = false,
 ): Promise<void> {
   const existing = state.values[key];
+  if (required && !existing) {
+    const secret = await password({
+      message: `Enter ${label}`,
+      validate(value) {
+        if (!value.trim()) return `${label} is required.`;
+        return undefined;
+      },
+    });
+    if (isCancel(secret)) process.exit(1);
+    state.values[key] = secret;
+    return;
+  }
+
   const shouldUse = await select({
     message: `${label}?`,
     options: [
-      { label: existing ? 'Keep current value' : 'Use', value: 'keep' },
-      { label: existing ? 'Replace' : 'Skip', value: 'replace' },
+      { label: 'Keep current value', value: 'keep' },
+      { label: existing ? 'Replace' : 'Enter value', value: 'replace' },
+      ...(!required ? [{ label: 'Skip', value: 'skip' }] : []),
     ],
   });
   if (isCancel(shouldUse)) process.exit(1);
 
+  if (shouldUse === 'skip') return;
+
   if (shouldUse === 'keep') {
-    if (required && !existing) {
-      await maybePromptSecret(state, key, label, required);
-    }
     return;
   }
 
@@ -151,6 +279,69 @@ async function maybePromptSecret(
 function extractInstanceId(output: string): string | undefined {
   const match = output.match(/\b([0-9a-f]{8}-[0-9a-f-]{27,}|[0-9a-f]{24,})\b/i);
   return match?.[1];
+}
+
+function parseJsonArray<T>(contents: string): T[] {
+  try {
+    const parsed = JSON.parse(contents);
+    return Array.isArray(parsed) ? (parsed as T[]) : [];
+  } catch {
+    return [];
+  }
+}
+
+function pickReusableWhatsappInstance(
+  instances: OmniInstance[],
+  preferredName: string,
+): OmniInstance | undefined {
+  return (
+    instances.find((instance) => instance.name === preferredName && instance.agentId) ||
+    instances.find((instance) => instance.name === preferredName) ||
+    instances.find((instance) => instance.channel === 'whatsapp-baileys' && instance.agentId) ||
+    instances.find((instance) => instance.channel === 'whatsapp-baileys')
+  );
+}
+
+async function listOmniInstances(repoRoot: string): Promise<OmniInstance[]> {
+  try {
+    const result = await runCommand('omni', ['instances', 'list', '--json'], {
+      cwd: repoRoot,
+      quiet: true,
+    });
+    return parseJsonArray<OmniInstance>(result.stdout);
+  } catch {
+    return [];
+  }
+}
+
+async function hasOmniConnection(repoRoot: string, instanceId: string): Promise<boolean> {
+  const instance = (await listOmniInstances(repoRoot)).find(
+    (candidate) => candidate.id === instanceId,
+  );
+  if (instance?.agentId) return true;
+
+  try {
+    const result = await runCommand('omni', ['providers', 'list', '--json'], {
+      cwd: repoRoot,
+      quiet: true,
+    });
+    const providers = parseJsonArray<Record<string, unknown>>(result.stdout);
+    return providers.some((provider) => {
+      const serialized = JSON.stringify(provider);
+      return serialized.includes('namastex-research') && serialized.includes(instanceId);
+    });
+  } catch {
+    return false;
+  }
+}
+
+async function isOmniHealthy(repoRoot: string): Promise<boolean> {
+  try {
+    const result = await runCommand('omni', ['status'], { cwd: repoRoot, quiet: true });
+    return /apiStatus\s+healthy|Version: .*✓|healthy/i.test(result.stdout + result.stderr);
+  } catch {
+    return false;
+  }
 }
 
 async function detectTools(repoRoot: string): Promise<DetectedTools> {
@@ -266,8 +457,10 @@ async function chooseProviders(state: InstallerState, detected: DetectedTools) {
   const initialValues =
     configured.length > 0
       ? configured
-      : [detected.claude ? 'claude-cli' : undefined, detected.codex ? 'codex-cli' : undefined]
-          .filter((value): value is string => Boolean(value));
+      : [
+          detected.claude ? 'claude-cli' : undefined,
+          detected.codex ? 'codex-cli' : undefined,
+        ].filter((value): value is string => Boolean(value));
 
   const selected = await multiselect({
     message: 'Choose provider order',
@@ -287,34 +480,73 @@ async function chooseProviders(state: InstallerState, detected: DetectedTools) {
 
 async function bootstrapAgent(repoRoot: string) {
   await runCommand('genie', ['setup', '--quick'], { cwd: repoRoot });
-  await runCommand('genie', ['init', 'agent', 'namastex-research'], { cwd: repoRoot });
+  const agentDir = resolve(repoRoot, 'agents', 'namastex-research');
+  if (await pathExists(agentDir)) {
+    note(`Using existing agent directory: ${agentDir}`, 'Agent');
+  } else {
+    await runCommand('genie', ['init', 'agent', 'namastex-research'], { cwd: repoRoot });
+  }
   await runCommand('genie', ['dir', 'sync'], { cwd: repoRoot });
 }
 
 async function startServices(repoRoot: string) {
-  await runCommand('omni', ['start'], { cwd: repoRoot });
-  await runCommand('genie', ['serve', 'start', '--daemon'], { cwd: repoRoot });
+  if (await isOmniHealthy(repoRoot)) {
+    note('Omni is already running and healthy.', 'Omni');
+  } else {
+    try {
+      await runCommand('omni', ['start'], { cwd: repoRoot });
+    } catch (error) {
+      if (!(await isOmniHealthy(repoRoot))) {
+        throw error;
+      }
+      note('Omni was already running; continuing with the healthy service.', 'Omni');
+    }
+  }
+  await runCommand('genie', ['serve', 'start', '--daemon', '--headless'], { cwd: repoRoot });
   await runCommand('omni', ['status'], { cwd: repoRoot });
+  await runCommand('genie', ['serve', 'status'], { cwd: repoRoot });
   await runCommand('genie', ['doctor'], { cwd: repoRoot });
 }
 
-async function createWhatsappInstance(repoRoot: string): Promise<string | undefined> {
+async function createWhatsappInstance(
+  repoRoot: string,
+  state: InstallerState,
+): Promise<string | undefined> {
   const shouldCreate = await confirm({
-    message: 'Create and pair a WhatsApp instance now?',
+    message: 'Create or reuse and pair a WhatsApp instance now?',
     initialValue: true,
   });
   if (isCancel(shouldCreate)) process.exit(1);
   if (!shouldCreate) return undefined;
 
+  const defaultInstanceName = state.values.OMNI_DEFAULT_INSTANCE_NAME || 'namastex-wa';
   const instanceName = await text({
     message: 'Omni instance name',
-    initialValue: 'namastex-whatsapp',
+    initialValue: defaultInstanceName,
   });
   if (isCancel(instanceName)) process.exit(1);
+  const resolvedName = String(instanceName).trim() || defaultInstanceName;
+
+  const existing = pickReusableWhatsappInstance(await listOmniInstances(repoRoot), resolvedName);
+  if (existing?.id) {
+    note(
+      `Using existing WhatsApp instance: ${existing.name || resolvedName} (${existing.id})`,
+      'Omni',
+    );
+    const shouldShowQr = await confirm({
+      message: 'Show pairing QR for this instance?',
+      initialValue: !existing.agentId,
+    });
+    if (isCancel(shouldShowQr)) process.exit(1);
+    if (shouldShowQr) {
+      await runCommand('omni', ['instances', 'qr', existing.id], { cwd: repoRoot });
+    }
+    return existing.id;
+  }
 
   const result = await runCommand(
     'omni',
-    ['instances', 'create', '--name', String(instanceName), '--channel', 'whatsapp-baileys'],
+    ['instances', 'create', '--name', resolvedName, '--channel', 'whatsapp-baileys'],
     { cwd: repoRoot },
   );
   const instanceId = extractInstanceId(result.stdout + result.stderr);
@@ -330,21 +562,36 @@ async function createWhatsappInstance(repoRoot: string): Promise<string | undefi
   return instanceId;
 }
 
-async function connectInstance(repoRoot: string, instanceId?: string) {
+async function connectInstance(repoRoot: string, inputInstanceId?: string) {
   const resolved =
-    instanceId ||
+    inputInstanceId ||
     (await text({
       message: 'Omni instance id to connect',
       placeholder: 'paste the instance id if it was not auto-detected',
     }));
   if (isCancel(resolved)) process.exit(1);
   if (!String(resolved).trim()) return;
+  const resolvedInstanceId = String(resolved).trim();
 
-  await runCommand(
-    'omni',
-    ['connect', String(resolved).trim(), 'namastex-research', '--reply-filter', 'filtered'],
-    { cwd: repoRoot },
-  );
+  if (await hasOmniConnection(repoRoot, resolvedInstanceId)) {
+    note(`Omni instance is already connected to namastex-research: ${resolvedInstanceId}`, 'Omni');
+    return;
+  }
+
+  try {
+    await runCommand(
+      'omni',
+      ['connect', resolvedInstanceId, 'namastex-research', '--reply-filter', 'filtered'],
+      { cwd: repoRoot },
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (/already|exists|duplicate/i.test(message)) {
+      note(`Omni connection already exists for instance: ${resolvedInstanceId}`, 'Omni');
+      return;
+    }
+    throw error;
+  }
 }
 
 async function main() {
@@ -379,7 +626,7 @@ async function main() {
   const state: InstallerState = {
     repoRoot,
     envPath,
-    values: await readEnvFile(envPath),
+    values: mergeProcessEnvFallbacks(await readEnvFile(envPath)),
   };
 
   await configureSecrets(state, detected);
@@ -388,8 +635,9 @@ async function main() {
 
   await bootstrapAgent(repoRoot);
   await startServices(repoRoot);
-  const instanceId = await createWhatsappInstance(repoRoot);
+  const instanceId = await createWhatsappInstance(repoRoot, state);
   await connectInstance(repoRoot, instanceId);
+  await installUpdateNewsScheduler(repoRoot);
 
   outro('Namastex setup complete.');
 }

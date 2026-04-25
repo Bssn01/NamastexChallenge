@@ -18,6 +18,8 @@ import type {
   AppConfig,
   DossierResource,
   IdeaDossier,
+  MonitorCadence,
+  MonitorProvider,
   RepoAssessment,
   RepoTargetRef,
   ResearchRun,
@@ -55,6 +57,14 @@ interface RepoRequest {
   target?: string;
   dossierId?: string;
   dossierHint?: string;
+}
+
+interface MonitorRequest {
+  cadence: MonitorCadence;
+  time: string;
+  topics: string[];
+  providers: MonitorProvider[];
+  topN: number;
 }
 
 const STOPWORDS = new Set([
@@ -218,6 +228,43 @@ function parseRepoRequest(payload: string): RepoRequest {
     target,
     dossierId: dossierToken ? dossierToken.slice('idea:'.length) : undefined,
     dossierHint,
+  };
+}
+
+function parseTime(text: string): string {
+  const match = text.match(/\b(?:as|às|at)\s*(\d{1,2})(?::|h)?(\d{2})?\b/i);
+  if (!match) return '09:00';
+  const hour = Math.min(Math.max(Number(match[1]), 0), 23);
+  const minute = match[2] ? Math.min(Math.max(Number(match[2]), 0), 59) : 0;
+  return `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;
+}
+
+function parseMonitorRequest(text: string): MonitorRequest {
+  const normalized = stripAccents(normalizeWhitespace(text).toLowerCase());
+  const cadence: MonitorCadence = /\b(semanalmente|weekly|toda semana)\b/i.test(normalized)
+    ? 'weekly'
+    : 'daily';
+  const providers: MonitorProvider[] = [];
+  if (/\b(tweet|tweets|x|twitter)\b/i.test(normalized)) providers.push('x');
+  if (/\b(hacker ?news|hn)\b/i.test(normalized)) providers.push('hackernews');
+  if (/\b(arxiv|paper|papers|artigos academicos|artigos acadêmicos)\b/i.test(normalized)) {
+    providers.push('arxiv');
+  }
+  const topMatch = normalized.match(/\btop\s*(\d{1,2})\b/);
+  const topN = topMatch ? Math.min(Math.max(Number(topMatch[1]), 1), 10) : 5;
+  const topicMatch =
+    text.match(/\bsobre\s+(.+)$/i) || text.match(/\b(?:de|do|da|para|em)\s+(.+)$/i);
+  const rawTopic = normalizeWhitespace(
+    (topicMatch?.[1] || '')
+      .replace(/\b(?:todo dia|diariamente|daily|semanalmente|weekly|toda semana)\b.*$/i, '')
+      .replace(/\b(?:as|às|at)\s*\d{1,2}(?::|h)?\d{0,2}\b/gi, ''),
+  );
+  return {
+    cadence,
+    time: parseTime(text),
+    providers: providers.length > 0 ? [...new Set(providers)] : ['x', 'hackernews', 'arxiv'],
+    topN,
+    topics: rawTopic ? [rawTopic] : [],
   };
 }
 
@@ -614,15 +661,38 @@ async function gatherGroupResearch(
     mainTopic: dossierInput.mainTopic,
   };
 
-  const [arxiv, hackernews, xResult, fieldTheoryResult] = await Promise.all([
-    services.arxiv.search(query, 5, context),
-    services.hackernews.search(query, 5, context),
-    services.x.search(query, services.config.xSearchLimit, context),
-    services.fieldtheory.search(query, 5, context),
+  const [arxivResult, hackernewsResult, xResult, fieldTheoryResult] = await Promise.all([
+    services.arxiv
+      .search(query, 5, context)
+      .then((sources) => ({ sources, notes: [] as string[] }))
+      .catch((error) => ({
+        sources: [] as DossierResourceCandidate[],
+        notes: [`arXiv unavailable: ${error instanceof Error ? error.message : String(error)}`],
+      })),
+    services.hackernews
+      .search(query, 5, context)
+      .then((sources) => ({ sources, notes: [] as string[] }))
+      .catch((error) => ({
+        sources: [] as DossierResourceCandidate[],
+        notes: [
+          `Hacker News unavailable: ${error instanceof Error ? error.message : String(error)}`,
+        ],
+      })),
+    services.x.search(query, services.config.xSearchLimit, context).catch((error) => ({
+      provider: 'unconfigured' as const,
+      configured: false,
+      posts: [],
+      notes: [`X search unavailable: ${error instanceof Error ? error.message : String(error)}`],
+    })),
+    services.fieldtheory.search(query, 5, context).catch((error) => ({
+      state: 'unconfigured' as const,
+      sources: [],
+      notes: [`FieldTheory unavailable: ${error instanceof Error ? error.message : String(error)}`],
+    })),
   ]);
 
   const topResources = rankCandidates(
-    [...arxiv, ...hackernews, ...fieldTheoryResult.sources],
+    [...arxivResult.sources, ...hackernewsResult.sources, ...fieldTheoryResult.sources],
     5,
   ).map((candidate) => toDossierResource(candidate, group.id));
   const topXPosts = rankCandidates(xResult.posts, services.config.xSearchLimit).map((candidate) =>
@@ -642,7 +712,12 @@ async function gatherGroupResearch(
     })),
   });
 
-  const diagnostics = [...xResult.notes, ...fieldTheoryResult.notes];
+  const diagnostics = [
+    ...arxivResult.notes,
+    ...hackernewsResult.notes,
+    ...xResult.notes,
+    ...fieldTheoryResult.notes,
+  ];
 
   return {
     result: {
@@ -831,8 +906,14 @@ export async function runBookmarksWorkflow(
   });
 
   if (result.state === 'missing') {
+    const platformNote =
+      process.platform === 'darwin'
+        ? 'Neste Mac, instale/configure o FieldTheory CLI (`ft`) e o `FT_DATA_DIR` para pesquisar seus bookmarks locais.'
+        : 'Neste host, só consigo usar FieldTheory se o binário `ft` estiver instalado e funcionando. Login de X no navegador/servidor não é lido diretamente por este agente.';
     return {
-      chunks: ['Bookmarks:\n\nfieldtheory-cli não está instalado neste ambiente.'],
+      chunks: [
+        `Bookmarks:\n\nfieldtheory-cli não está instalado neste ambiente.\n\n${platformNote}`,
+      ],
       metadata: { state: result.state },
     };
   }
@@ -840,7 +921,12 @@ export async function runBookmarksWorkflow(
   if (result.state === 'unconfigured') {
     return {
       chunks: [
-        'Bookmarks:\n\nfieldtheory-cli está instalado, mas não está configurado com um acervo local pesquisável.',
+        [
+          'Bookmarks:',
+          '',
+          'fieldtheory-cli está instalado, mas não está configurado com um acervo local pesquisável.',
+          'Se houver uma conta X logada no servidor/navegador, isso ainda não basta: preciso do índice local do FieldTheory ou das chaves XAI_API_KEY/OPENROUTER_API_KEY para busca em X.',
+        ].join('\n'),
       ],
       metadata: { state: result.state },
     };
@@ -874,6 +960,190 @@ export async function runClarificationWorkflow(question: string): Promise<Workfl
   };
 }
 
+export async function runGreetingWorkflow(): Promise<WorkflowResult> {
+  return {
+    chunks: [
+      [
+        'Oi! Sou o agente de pesquisa da Namastex.',
+        '',
+        'Posso te ajudar a:',
+        '- pesquisar e validar uma ideia de produto ou mercado',
+        '- resumir o que já está salvo na nossa memória',
+        '- mostrar fontes e evidências de um dossiê',
+        '- comparar uma ideia com um repositório GitHub',
+        '- procurar sinais em bookmarks locais, se estiver configurado',
+        '',
+        'Me manda uma ideia ou pergunta e eu sigo daqui.',
+      ].join('\n'),
+    ],
+    metadata: {},
+  };
+}
+
+export async function runCapabilitiesWorkflow(): Promise<WorkflowResult> {
+  return {
+    chunks: [
+      [
+        'Posso te ajudar assim:',
+        '',
+        '- pesquisar uma ideia, mercado, nicho ou hipótese quando você pedir em linguagem natural',
+        '- salvar dossiês com tópicos, nichos, fontes e evidências',
+        '- listar quais tópicos e nichos você já tem salvos',
+        '- mostrar fontes de um dossiê',
+        '- listar seus repositórios do GitHub e testar uma ideia contra um repo para dizer se vale a pena',
+        '- acompanhar temas e te mandar update news diário ou semanal com top posts/tweets/papers',
+        '',
+        'Exemplos:',
+        '“pesquisa agentes de WhatsApp para suporte financeiro”',
+        '“quais tópicos eu tenho salvos?”',
+        '“me manda todo dia às 9 top 5 tweets, Hacker News e arXiv sobre agentes B2B”',
+        '“testa essa ideia no repo Bssn01/NamastexChallenge”',
+      ].join('\n'),
+    ],
+    metadata: {},
+  };
+}
+
+function collectSavedTopics(dossiers: IdeaDossier[]): {
+  topics: string[];
+  niches: string[];
+} {
+  const topics = new Set<string>();
+  const niches = new Set<string>();
+  for (const dossier of dossiers) {
+    if (dossier.mainTopic) topics.add(dossier.mainTopic);
+    for (const group of dossier.topicGroups || []) {
+      for (const topic of group.topics || []) {
+        if (group.kind === 'niche') {
+          niches.add(topic);
+        } else {
+          topics.add(topic);
+        }
+      }
+    }
+  }
+  return {
+    topics: [...topics],
+    niches: [...niches],
+  };
+}
+
+export async function runSavedTopicsWorkflow(services: AppServices): Promise<WorkflowResult> {
+  const dossiers = await services.store.listRecentDossiers(25);
+  const { topics, niches } = collectSavedTopics(dossiers);
+  if (topics.length === 0 && niches.length === 0) {
+    return {
+      chunks: [
+        'Ainda não tenho tópicos ou nichos salvos nesta conversa. Me mande uma ideia para pesquisar e eu salvo o dossiê.',
+      ],
+      metadata: { topicCount: 0, nicheCount: 0 },
+    };
+  }
+
+  return {
+    chunks: chunkText(
+      [
+        'Tópicos e nichos salvos nesta conversa:',
+        '',
+        topics.length ? `Tópicos:\n${topics.map((topic) => `- ${topic}`).join('\n')}` : '',
+        niches.length ? `Nichos:\n${niches.map((niche) => `- ${niche}`).join('\n')}` : '',
+        '',
+        'Você pode pedir fontes, resumo, comparar com um repo, ou ativar update news diário/semanal para esses temas.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    ),
+    metadata: { topicCount: topics.length, nicheCount: niches.length },
+  };
+}
+
+export async function runMonitorWorkflow(
+  text: string,
+  services: AppServices,
+): Promise<WorkflowResult> {
+  const request = parseMonitorRequest(text);
+  const dossiers = await services.store.listRecentDossiers(25);
+  const saved = collectSavedTopics(dossiers);
+  const topics = request.topics.length > 0 ? request.topics : saved.topics.slice(0, 5);
+  const niches = saved.niches.slice(0, 10);
+
+  if (topics.length === 0) {
+    return {
+      chunks: [
+        'Consigo criar um update news diário ou semanal, mas preciso de pelo menos um tema. Exemplo: “me manda todo dia às 9 top 5 tweets, Hacker News e arXiv sobre agentes de WhatsApp”.',
+      ],
+      metadata: { state: 'missing-topic' },
+    };
+  }
+
+  const monitor = await services.store.upsertMonitorSubscription({
+    instanceId: services.config.omniInstanceId,
+    chatId: services.config.omniChatId,
+    cadence: request.cadence,
+    time: request.time,
+    timezone: 'America/Sao_Paulo',
+    topics,
+    niches,
+    providers: request.providers,
+    topN: request.topN,
+    enabled: true,
+  });
+
+  return {
+    chunks: [
+      [
+        `Fechado. Salvei um update news ${monitor.cadence === 'daily' ? 'diário' : 'semanal'} às ${monitor.time}.`,
+        `Vou acompanhar top ${monitor.topN} em: ${monitor.providers.join(', ')}.`,
+        `Tópicos: ${monitor.topics.join(', ')}`,
+        monitor.niches.length
+          ? `Nichos salvos usados como contexto: ${monitor.niches.join(', ')}`
+          : '',
+        '',
+        'No host local, deixe o agendador chamando `npm run update-news:due` para eu enviar automaticamente no horário.',
+      ]
+        .filter(Boolean)
+        .join('\n'),
+    ],
+    metadata: { monitorId: monitor.id },
+  };
+}
+
+export async function runGithubReposWorkflow(services: AppServices): Promise<WorkflowResult> {
+  const repos = await services.github.listUserRepositories(10);
+  if (repos.length === 0) {
+    return {
+      chunks: [
+        [
+          'Não consegui listar seus repositórios agora.',
+          '',
+          'Confere se o `GITHUB_TOKEN` está configurado e tem acesso de leitura aos repositórios que você quer usar.',
+        ].join('\n'),
+      ],
+      metadata: { count: 0 },
+    };
+  }
+
+  const lines = repos.map((repo, index) => {
+    const visibility = repo.private ? 'privado' : 'público';
+    const archived = repo.archived ? ', arquivado' : '';
+    const description = repo.description ? `\n   ${repo.description}` : '';
+    return `${index + 1}. ${repo.fullName} (${visibility}${archived})\n   ${repo.htmlUrl}${description}`;
+  });
+
+  return {
+    chunks: chunkText(
+      [
+        'Repos que seu token do GitHub consegue acessar, ordenados por atualização recente:',
+        '',
+        lines.join('\n\n'),
+        '',
+        'Me manda um deles no formato `owner/repo` se quiser que eu compare com uma ideia salva.',
+      ].join('\n'),
+    ),
+    metadata: { count: repos.length },
+  };
+}
+
 export async function routeWhatsappMessage(
   text: string,
   services: AppServices,
@@ -899,6 +1169,11 @@ export async function routeWhatsappMessage(
     Exclude<typeof intent.kind, 'clarify'>,
     (input: string, runtime: AppServices) => Promise<WorkflowResult>
   > = {
+    greeting: async () => runGreetingWorkflow(),
+    capabilities: async () => runCapabilitiesWorkflow(),
+    'github-repos': async (_input, runtime) => runGithubReposWorkflow(runtime),
+    'saved-topics': async (_input, runtime) => runSavedTopicsWorkflow(runtime),
+    monitor: runMonitorWorkflow,
     research: runPesquisaWorkflow,
     wiki: runWikiWorkflow,
     sources: runSourcesWorkflow,
