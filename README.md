@@ -129,6 +129,26 @@ npm run auth:claude -- --mode docker
 npm run auth:codex -- --mode docker
 ```
 
+## Atualizações de segurança
+
+### 2026-04-23 - Genie/CanisterWorm
+
+Tópico original: [automagik-dev/genie SECURITY.md](https://github.com/automagik-dev/genie/blob/main/SECURITY.md). Aviso público: [automagik.dev/security](https://automagik.dev/security).
+
+Entre 2026-04-21 e 2026-04-22, versões comprometidas de `@automagik/genie` (`4.260421.33` a `4.260421.40`) e `pgserve` (`1.1.11` a `1.1.14`) foram publicadas no npm. Este repositório não declara esses pacotes no `package.json`, mas o caminho Docker instala Omni/Genie globalmente, então os Dockerfiles foram travados em versões limpas:
+
+- `@automagik/genie@4.260423.10`
+- `pgserve@1.1.10`
+- `@automagik/omni@2.260410.1`
+
+Os Dockerfiles não usam mais o installer remoto flutuante de `automagik-dev/genie/main` e validam as versões instaladas durante o build. Depois de atualizar o checkout, reconstrua as imagens sem cache:
+
+```bash
+docker compose build --no-cache genie omni
+```
+
+Se alguma máquina instalou as versões afetadas durante a janela do incidente, siga o `SECURITY.md` upstream e o aviso público antes de reutilizar credenciais. Em máquinas limpas, mantenha versões explícitas e evite `latest` para pacotes sensíveis de supply chain.
+
 ## Setup local avançado
 
 ```bash

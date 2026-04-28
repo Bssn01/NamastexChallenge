@@ -1,11 +1,17 @@
 FROM oven/bun:1
 
+ARG AUTOMAGIK_OMNI_VERSION=2.260410.1
+ARG PGSERVE_VERSION=1.1.10
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends curl ca-certificates \
   && rm -rf /var/lib/apt/lists/* \
   && useradd -m -s /bin/bash omni
 
-RUN bun add -g @automagik/omni
+RUN bun add -g \
+    @automagik/omni@${AUTOMAGIK_OMNI_VERSION} \
+    pgserve@${PGSERVE_VERSION} \
+  && bun -e "const checks = [['@automagik/omni', '${AUTOMAGIK_OMNI_VERSION}'], ['pgserve', '${PGSERVE_VERSION}']]; for (const [name, version] of checks) { const pkg = require('/root/.bun/install/global/node_modules/' + name + '/package.json'); if (pkg.version !== version) throw new Error(name + ' expected ' + version + ' got ' + pkg.version); }"
 
 RUN chmod 755 /root \
   && chmod -R a+rX /root/.bun \

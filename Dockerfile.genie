@@ -1,5 +1,9 @@
 FROM node:22-slim
 
+ARG AUTOMAGIK_OMNI_VERSION=2.260410.1
+ARG AUTOMAGIK_GENIE_VERSION=4.260423.10
+ARG PGSERVE_VERSION=1.1.10
+
 RUN apt-get update \
   && apt-get install -y --no-install-recommends \
     ca-certificates curl git gosu jq procps tmux unzip \
@@ -8,13 +12,20 @@ RUN apt-get update \
 RUN curl -fsSL https://bun.sh/install | bash
 ENV PATH="/root/.bun/bin:/root/.local/bin:$PATH"
 
-RUN bun add -g @automagik/omni
-RUN curl -fsSL https://raw.githubusercontent.com/automagik-dev/genie/main/install.sh | bash
+RUN bun add -g \
+    @automagik/omni@${AUTOMAGIK_OMNI_VERSION} \
+    @automagik/genie@${AUTOMAGIK_GENIE_VERSION} \
+    pgserve@${PGSERVE_VERSION} \
+  && test "$(genie --version)" = "${AUTOMAGIK_GENIE_VERSION}" \
+  && node -e "const checks = [['@automagik/omni', '${AUTOMAGIK_OMNI_VERSION}'], ['@automagik/genie', '${AUTOMAGIK_GENIE_VERSION}'], ['pgserve', '${PGSERVE_VERSION}']]; for (const [name, version] of checks) { const pkg = require('/root/.bun/install/global/node_modules/' + name + '/package.json'); if (pkg.version !== version) throw new Error(name + ' expected ' + version + ' got ' + pkg.version); }" \
+  && node /root/.bun/install/global/node_modules/@automagik/genie/scripts/postinstall-tmux.js \
+  && genie sec verify-install
 RUN npm install -g @anthropic-ai/claude-code @openai/codex
 
 RUN ln -sf /root/.bun/bin/omni /usr/local/bin/omni \
   && ln -sf /root/.bun/bin/genie /usr/local/bin/genie \
   && ln -sf /root/.bun/bin/bun /usr/local/bin/bun \
+  && mkdir -p /root/.local/bin \
   && chmod 755 /root \
   && chmod -R a+rX /root/.bun /root/.local
 
